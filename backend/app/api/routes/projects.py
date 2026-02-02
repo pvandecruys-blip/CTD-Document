@@ -5,6 +5,7 @@ generation, and validation.
 Uses SQLite for persistence across restarts.
 """
 
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -15,6 +16,8 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from app import db
+
+_ON_VERCEL = os.environ.get("VERCEL") == "1"
 
 router = APIRouter(prefix="/api/v1", tags=["projects"])
 
@@ -156,7 +159,10 @@ async def upload_document(
     doc_id = str(uuid4())
 
     # Save file to disk for later extraction
-    upload_dir = Path(__file__).resolve().parent.parent.parent.parent / "uploads" / project_id
+    if _ON_VERCEL:
+        upload_dir = Path("/tmp/uploads") / project_id
+    else:
+        upload_dir = Path(__file__).resolve().parent.parent.parent.parent / "uploads" / project_id
     upload_dir.mkdir(parents=True, exist_ok=True)
     file_path = upload_dir / f"{doc_id}_{filename}"
     file_path.write_bytes(content)
@@ -557,7 +563,10 @@ async def get_generation_status(project_id: str, run_id: str):
 @router.get("/outputs/{run_id}/{filename}")
 async def download_output(run_id: str, filename: str):
     """Serve a generated output file."""
-    output_dir = Path(__file__).resolve().parent.parent.parent.parent / "generated_outputs" / run_id
+    if _ON_VERCEL:
+        output_dir = Path("/tmp/generated_outputs") / run_id
+    else:
+        output_dir = Path(__file__).resolve().parent.parent.parent.parent / "generated_outputs" / run_id
     file_path = output_dir / filename
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="File not found")

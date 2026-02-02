@@ -6,11 +6,17 @@ and generation runs so they survive server restarts.
 """
 
 import json
+import os
 import sqlite3
 from pathlib import Path
 from contextlib import contextmanager
 
-DB_PATH = Path(__file__).resolve().parent.parent / "ctd_stability.db"
+_ON_VERCEL = os.environ.get("VERCEL") == "1"
+
+if _ON_VERCEL:
+    DB_PATH = Path("/tmp/ctd_stability.db")
+else:
+    DB_PATH = Path(__file__).resolve().parent.parent / "ctd_stability.db"
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS projects (

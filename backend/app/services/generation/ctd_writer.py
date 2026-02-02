@@ -320,7 +320,11 @@ body {{ font-family: Arial, Helvetica, sans-serif; font-size: 11pt; color: #333;
 
 
 # ── Output directory ─────────────────────────────────────────────
-OUTPUT_DIR = Path(__file__).resolve().parent.parent.parent.parent / "generated_outputs"
+_ON_VERCEL = os.environ.get("VERCEL") == "1"
+if _ON_VERCEL:
+    OUTPUT_DIR = Path("/tmp/generated_outputs")
+else:
+    OUTPUT_DIR = Path(__file__).resolve().parent.parent.parent.parent / "generated_outputs"
 OUTPUT_DIR.mkdir(exist_ok=True)
 
 
