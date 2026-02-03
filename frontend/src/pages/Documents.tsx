@@ -3,7 +3,6 @@ import {
   FileText,
   Trash2,
   CheckCircle2,
-  AlertTriangle,
   XCircle,
   FileUp,
   RefreshCw,
@@ -11,7 +10,7 @@ import {
 } from 'lucide-react';
 import type { DocumentFile, DocumentClassification } from '../types';
 import { useProject } from '../context/ProjectContext';
-import { documents, readiness, type ReadinessReport } from '../api/client';
+import { documents } from '../api/client';
 
 const CLASSIFICATION_OPTIONS: { value: DocumentClassification; label: string }[] = [
   { value: 'stability_plan', label: 'Stability Plan' },
@@ -21,17 +20,9 @@ const CLASSIFICATION_OPTIONS: { value: DocumentClassification; label: string }[]
   { value: 'other_supporting', label: 'Other Supporting' },
 ];
 
-const STATUS_STYLE: Record<string, { bg: string; icon: React.ReactNode }> = {
-  ready: { bg: 'bg-green-50 border-green-200', icon: <CheckCircle2 size={16} className="text-green-600" /> },
-  partial: { bg: 'bg-amber-50 border-amber-200', icon: <AlertTriangle size={16} className="text-amber-600" /> },
-  blocked: { bg: 'bg-red-50 border-red-200', icon: <XCircle size={16} className="text-red-500" /> },
-  optional: { bg: 'bg-gray-50 border-gray-200', icon: <FileText size={16} className="text-gray-400" /> },
-};
-
 export default function Documents() {
   const { current, reload: reloadProjects } = useProject();
   const [docs, setDocs] = useState<DocumentFile[]>([]);
-  const [report, setReport] = useState<ReadinessReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
@@ -40,15 +31,11 @@ export default function Documents() {
   const pid = current?.id;
 
   const load = useCallback(async () => {
-    if (!pid) { setDocs([]); setReport(null); setLoading(false); return; }
+    if (!pid) { setDocs([]); setLoading(false); return; }
     setLoading(true);
     try {
-      const [docData, readinessData] = await Promise.all([
-        documents.list(pid),
-        readiness.check(pid),
-      ]);
+      const docData = await documents.list(pid);
       setDocs(docData.items);
-      setReport(readinessData);
     } catch {
       /* offline */
     } finally {
@@ -57,6 +44,15 @@ export default function Documents() {
   }, [pid]);
 
   useEffect(() => { load(); }, [load]);
+
+  const readFileAsText = (file: File): Promise<string> => {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string || '');
+      reader.onerror = () => resolve('');
+      reader.readAsText(file);
+    });
+  };
 
   const uploadFiles = async (files: FileList | File[]) => {
     if (!pid) return;
@@ -69,7 +65,8 @@ export default function Documents() {
     for (let i = 0; i < fileArr.length; i++) {
       setUploadQueue((q) => q.map((item, idx) => idx === i ? { ...item, status: 'uploading' } : item));
       try {
-        await documents.upload(pid, fileArr[i]);
+        const text = await readFileAsText(fileArr[i]);
+        await documents.upload(pid, fileArr[i].name, text);
         setUploadQueue((q) => q.map((item, idx) => idx === i ? { ...item, status: 'done' } : item));
       } catch {
         setUploadQueue((q) => q.map((item, idx) => idx === i ? { ...item, status: 'error' } : item));
@@ -240,55 +237,6 @@ export default function Documents() {
           </div>
         )}
       </div>
-
-      {/* ── Readiness Panel ────────────────────────────────────── */}
-      {report && (
-        <div className="mb-6">
-          <h2 className="text-sm font-semibold text-gray-700 mb-3 uppercase tracking-wider">
-            Build Readiness
-          </h2>
-          <div className="grid gap-3">
-            {report.capabilities.map((cap) => {
-              const style = STATUS_STYLE[cap.status] || STATUS_STYLE.blocked;
-              return (
-                <div
-                  key={cap.section}
-                  className={`rounded-lg border p-4 ${style.bg}`}
-                >
-                  <div className="flex items-center gap-2 mb-2">
-                    {style.icon}
-                    <span className="text-xs font-mono text-gray-500">{cap.section}</span>
-                  </div>
-                  <p className="text-sm font-medium text-gray-900 mb-1">{cap.title}</p>
-                  {cap.status === 'ready' ? (
-                    <p className="text-xs text-green-700">Ready to generate</p>
-                  ) : cap.missing.length > 0 ? (
-                    <ul className="text-xs text-gray-500 space-y-0.5">
-                      {cap.missing.map((m, i) => (
-                        <li key={i}>• {m}</li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <p className="text-xs text-gray-400">Optional</p>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-
-          {/* Summary bar */}
-          <div className="mt-3 flex items-center gap-4 text-xs text-gray-500">
-            <span>{report.document_summary.total} document{report.document_summary.total !== 1 ? 's' : ''}</span>
-            <span className="text-green-600">{report.document_summary.authoritative_count} authoritative</span>
-            <span>{report.document_summary.supporting_count} supporting</span>
-            {report.extraction_status.extracted && (
-              <span className="text-primary-600">
-                {report.extraction_status.studies} studies, {report.extraction_status.conditions} conditions, {report.extraction_status.attributes} attributes extracted
-              </span>
-            )}
-          </div>
-        </div>
-      )}
 
       {/* ── Document Table ─────────────────────────────────────── */}
       {loading ? (

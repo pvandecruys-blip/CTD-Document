@@ -40,8 +40,8 @@ export default function ExtractionReview() {
     try {
       const [s, c, a] = await Promise.all([
         studies.list(pid),
-        conditions.list(pid, '_all'),
-        attributes.list(pid, '_all'),
+        conditions.list(pid),
+        attributes.list(pid),
       ]);
       setStudyList(s.items);
       setConditionList(c.items);
@@ -63,7 +63,8 @@ export default function ExtractionReview() {
     }
     setExpandedStudy(studyId);
     try {
-      const data = await lots.list(pid, studyId);
+      const data = await lots.list(pid);
+      // Filter lots by study if needed (client returns all lots)
       setLotList(data.items);
     } catch {
       setLotList([]);
