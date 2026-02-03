@@ -352,7 +352,7 @@ async def generate_stability_document(
     # 1. Extract text from uploaded documents (fetching bytes from SQLite)
     document_texts = []
     if documents:
-        from app import db
+        from app import store
         from app.services.extraction.text_extractor import extract_text_from_bytes
 
         for doc in documents:
@@ -360,8 +360,8 @@ async def generate_stability_document(
             file_type = doc.get("file_type", "")
             if doc_id and file_type:
                 try:
-                    # Fetch file bytes from SQLite BLOB column
-                    file_bytes = db.get_document_bytes(project_id, doc_id)
+                    # Fetch file bytes from in-memory store
+                    file_bytes = store.get_document_bytes(project_id, doc_id)
                     if file_bytes:
                         text = extract_text_from_bytes(file_bytes, file_type)
                         if text.strip():

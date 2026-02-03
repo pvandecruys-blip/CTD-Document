@@ -2,8 +2,8 @@
 API routes for project management, document upload, extraction,
 generation, and validation.
 
-SERVERLESS-COMPATIBLE: No filesystem persistence. All data stored in SQLite
-(which lives in /tmp on Vercel — ephemeral but sufficient for demo).
+SERVERLESS-COMPATIBLE: No filesystem or database persistence. All data stored
+in-memory within the module. Data resets on cold starts — acceptable for demo.
 """
 
 from datetime import datetime, timezone
@@ -14,7 +14,7 @@ from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
 from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel
 
-from app import db
+from app import store
 
 router = APIRouter(prefix="/api/v1", tags=["projects"])
 
@@ -51,7 +51,7 @@ class GenerationRequest(BaseModel):
 
 @router.get("/projects")
 async def list_projects():
-    items = db.get_all_projects()
+    items = store.get_all_projects()
     return {"items": items, "total": len(items)}
 
 
@@ -71,13 +71,13 @@ async def create_project(body: ProjectCreate):
         "created_at": now,
         "updated_at": now,
     }
-    db.upsert_project(project)
+    store.upsert_project(project)
     return project
 
 
 @router.get("/projects/{project_id}")
 async def get_project(project_id: str):
-    project = db.get_project(project_id)
+    project = store.get_project(project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
     return project
@@ -85,7 +85,7 @@ async def get_project(project_id: str):
 
 @router.put("/projects/{project_id}")
 async def update_project(project_id: str, body: ProjectUpdate):
-    project = db.get_project(project_id)
+    project = store.get_project(project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
     if body.name is not None:
@@ -95,13 +95,13 @@ async def update_project(project_id: str, body: ProjectUpdate):
     if body.status is not None:
         project["status"] = body.status
     project["updated_at"] = _now()
-    db.upsert_project(project)
+    store.upsert_project(project)
     return project
 
 
 @router.delete("/projects/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_project_endpoint(project_id: str):
-    db.delete_project(project_id)
+    store.delete_project(project_id)
 
 
 # ── Auto-classification helpers ────────────────────────────────────
@@ -144,10 +144,9 @@ async def upload_document(
     """
     Upload a document. Classification is auto-detected if not provided.
 
-    SERVERLESS: File bytes are stored directly in SQLite BLOB column,
-    not on the filesystem. This ensures data survives across requests.
+    SERVERLESS: File bytes are stored in-memory, not on filesystem.
     """
-    project = db.get_project(project_id)
+    project = store.get_project(project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
@@ -161,7 +160,7 @@ async def upload_document(
     authority = "authoritative" if classification in _AUTHORITATIVE else "supporting"
     doc_id = str(uuid4())
 
-    # Document metadata — no file_path since we store bytes in DB
+    # Document metadata — no file_path since we store bytes in memory
     doc = {
         "id": doc_id,
         "filename": filename,
@@ -175,25 +174,25 @@ async def upload_document(
         "uploaded_at": _now(),
         "notes": notes,
     }
-    # Store document metadata AND file bytes in SQLite
-    db.add_document(project_id, doc, file_bytes=content)
+    # Store document metadata AND file bytes in memory
+    store.add_document(project_id, doc, file_bytes=content)
 
-    project["document_count"] = db.count_documents(project_id)
+    project["document_count"] = store.count_documents(project_id)
     project["updated_at"] = _now()
-    db.upsert_project(project)
+    store.upsert_project(project)
     return doc
 
 
 @router.put("/projects/{project_id}/documents/{document_id}/classify")
 async def reclassify_document(project_id: str, document_id: str, classification: str = Form(...)):
     """Manually override the classification of a document."""
-    docs = db.get_documents(project_id)
+    docs = store.get_documents(project_id)
     for d in docs:
         if d["id"] == document_id:
             d["classification"] = classification
             d["authority"] = "authoritative" if classification in _AUTHORITATIVE else "supporting"
             d["auto_classified"] = False
-            db.update_document(project_id, document_id, d)
+            store.update_document(project_id, document_id, d)
             return d
     raise HTTPException(status_code=404, detail="Document not found")
 
@@ -204,7 +203,7 @@ async def list_documents(
     classification: Optional[str] = None,
     authority: Optional[str] = None,
 ):
-    docs = db.get_documents(project_id)
+    docs = store.get_documents(project_id)
     if classification:
         docs = [d for d in docs if d["classification"] == classification]
     if authority:
@@ -214,21 +213,21 @@ async def list_documents(
 
 @router.delete("/projects/{project_id}/documents/{document_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_document(project_id: str, document_id: str):
-    db.delete_document(project_id, document_id)
-    project = db.get_project(project_id)
+    store.delete_document(project_id, document_id)
+    project = store.get_project(project_id)
     if project:
-        project["document_count"] = db.count_documents(project_id)
-        db.upsert_project(project)
+        project["document_count"] = store.count_documents(project_id)
+        store.upsert_project(project)
 
 
 # ── Readiness check endpoint ─────────────────────────────────────
 
 @router.get("/projects/{project_id}/readiness")
 async def check_readiness(project_id: str):
-    docs = db.get_documents(project_id)
-    studies_data = db.get_studies(project_id)
-    conds_data = db.get_conditions(project_id)
-    attrs_data = db.get_attributes(project_id)
+    docs = store.get_documents(project_id)
+    studies_data = store.get_studies(project_id)
+    conds_data = store.get_conditions(project_id)
+    attrs_data = store.get_attributes(project_id)
 
     by_class: dict[str, int] = {}
     for d in docs:
@@ -372,10 +371,10 @@ async def trigger_extraction(project_id: str):
         },
     ]
 
-    db.set_studies(project_id, studies)
-    db.set_lots(project_id, lots)
-    db.set_conditions(project_id, conditions)
-    db.set_attributes(project_id, attributes)
+    store.set_studies(project_id, studies)
+    store.set_lots(project_id, lots)
+    store.set_conditions(project_id, conditions)
+    store.set_attributes(project_id, attributes)
 
     return {
         "job_id": job_id,
@@ -401,24 +400,24 @@ async def get_extraction_status(project_id: str, job_id: str):
 
 @router.get("/projects/{project_id}/studies")
 async def list_studies(project_id: str):
-    return {"items": db.get_studies(project_id)}
+    return {"items": store.get_studies(project_id)}
 
 
 @router.get("/projects/{project_id}/studies/{study_id}/lots")
 async def list_study_lots(project_id: str, study_id: str):
-    all_lots = db.get_lots(project_id)
+    all_lots = store.get_lots(project_id)
     filtered = [l for l in all_lots if l["study_id"] == study_id]
     return {"items": filtered}
 
 
 @router.get("/projects/{project_id}/studies/{study_id}/conditions")
 async def list_study_conditions(project_id: str, study_id: str):
-    return {"items": db.get_conditions(project_id)}
+    return {"items": store.get_conditions(project_id)}
 
 
 @router.get("/projects/{project_id}/studies/{study_id}/attributes")
 async def list_study_attributes(project_id: str, study_id: str):
-    return {"items": db.get_attributes(project_id)}
+    return {"items": store.get_attributes(project_id)}
 
 
 @router.get("/projects/{project_id}/studies/{study_id}/results/pivot")
@@ -428,17 +427,17 @@ async def get_results_pivot(project_id: str, study_id: str, lot_id: str, conditi
 
 @router.get("/projects/{project_id}/conditions")
 async def list_conditions(project_id: str):
-    return {"items": db.get_conditions(project_id)}
+    return {"items": store.get_conditions(project_id)}
 
 
 @router.get("/projects/{project_id}/attributes")
 async def list_attributes(project_id: str):
-    return {"items": db.get_attributes(project_id)}
+    return {"items": store.get_attributes(project_id)}
 
 
 @router.get("/projects/{project_id}/lots")
 async def list_lots(project_id: str, study_id: Optional[str] = None):
-    all_lots = db.get_lots(project_id)
+    all_lots = store.get_lots(project_id)
     if study_id:
         all_lots = [l for l in all_lots if l["study_id"] == study_id]
     return {"items": all_lots}
@@ -449,11 +448,11 @@ async def list_lots(project_id: str, study_id: Optional[str] = None):
 @router.post("/projects/{project_id}/validate")
 async def validate_project(project_id: str):
     now = _now()
-    studies = db.get_studies(project_id)
-    docs = db.get_documents(project_id)
-    conds = db.get_conditions(project_id)
-    lots = db.get_lots(project_id)
-    attrs = db.get_attributes(project_id)
+    studies = store.get_studies(project_id)
+    docs = store.get_documents(project_id)
+    conds = store.get_conditions(project_id)
+    lots = store.get_lots(project_id)
+    attrs = store.get_attributes(project_id)
 
     hard_failures = []
     warnings = []
@@ -512,18 +511,18 @@ async def trigger_generation(project_id: str, body: GenerationRequest):
     """
     Generate CTD stability document using Claude API.
 
-    SERVERLESS: Generated HTML is stored in SQLite, not filesystem.
+    SERVERLESS: Generated HTML is stored in memory, not filesystem.
     The response includes the run_id which can be used to retrieve HTML.
     """
-    project = db.get_project(project_id)
+    project = store.get_project(project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
-    project_studies = db.get_studies(project_id)
-    project_lots = db.get_lots(project_id)
-    project_conditions = db.get_conditions(project_id)
-    project_attributes = db.get_attributes(project_id)
-    project_documents = db.get_documents(project_id)
+    project_studies = store.get_studies(project_id)
+    project_lots = store.get_lots(project_id)
+    project_conditions = store.get_conditions(project_id)
+    project_attributes = store.get_attributes(project_id)
+    project_documents = store.get_documents(project_id)
 
     try:
         from app.services.generation.ctd_writer import generate_stability_document
@@ -544,19 +543,19 @@ async def trigger_generation(project_id: str, body: GenerationRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Generation failed: {e}")
 
-    # Store run metadata AND HTML content in SQLite
-    db.add_generation_run(project_id, result, output_html=html_content)
+    # Store run metadata AND HTML content in memory
+    store.add_generation_run(project_id, result, output_html=html_content)
     return result
 
 
 @router.get("/projects/{project_id}/generate")
 async def list_generation_runs(project_id: str):
-    return {"items": db.get_generation_runs(project_id)}
+    return {"items": store.get_generation_runs(project_id)}
 
 
 @router.get("/projects/{project_id}/generate/{run_id}")
 async def get_generation_status(project_id: str, run_id: str):
-    runs = db.get_generation_runs(project_id)
+    runs = store.get_generation_runs(project_id)
     for r in runs:
         if r["run_id"] == run_id:
             return r
@@ -568,21 +567,20 @@ async def get_generation_status(project_id: str, run_id: str):
 @router.get("/outputs/{run_id}/{filename}")
 async def download_output(run_id: str, filename: str):
     """
-    Serve generated output from SQLite storage.
+    Serve generated output from in-memory storage.
 
-    SERVERLESS: HTML is stored in DB, not filesystem.
     We need to find which project owns this run_id.
     """
     # Find the project that owns this run
-    all_projects = db.get_all_projects()
+    all_projects = store.get_all_projects()
     for project in all_projects:
-        html_content = db.get_generation_html(project["id"], run_id)
+        html_content = store.get_generation_html(project["id"], run_id)
         if html_content:
             if filename.endswith(".html"):
                 return HTMLResponse(content=html_content, media_type="text/html")
             elif filename.endswith(".json"):
                 # Return traceability info from run metadata
-                runs = db.get_generation_runs(project["id"])
+                runs = store.get_generation_runs(project["id"])
                 for r in runs:
                     if r["run_id"] == run_id:
                         return Response(
