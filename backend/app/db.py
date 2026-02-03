@@ -1,10 +1,14 @@
 """
 SQLite persistence layer for the CTD Stability Document Generator.
 
-Lightweight PoC database — stores projects, documents, extracted entities,
-and generation runs so they survive server restarts.
+Stores projects, documents (with file bytes as BLOB), extracted entities,
+and generation runs. Works in serverless environments like Vercel.
+
+NOTE: On Vercel, /tmp is ephemeral per function instance. Data persists
+only during a "warm" session. This is acceptable for demo purposes.
 """
 
+import base64
 import json
 import os
 import sqlite3
@@ -24,10 +28,12 @@ CREATE TABLE IF NOT EXISTS projects (
     data TEXT NOT NULL
 );
 
+-- Documents table now includes file_content BLOB for in-DB storage
 CREATE TABLE IF NOT EXISTS documents (
     id TEXT PRIMARY KEY,
     project_id TEXT NOT NULL,
-    data TEXT NOT NULL
+    data TEXT NOT NULL,
+    file_content BLOB
 );
 
 CREATE TABLE IF NOT EXISTS studies (
@@ -54,10 +60,12 @@ CREATE TABLE IF NOT EXISTS attributes (
     data TEXT NOT NULL
 );
 
+-- Generation runs now store output_html directly (no file references)
 CREATE TABLE IF NOT EXISTS generation_runs (
     run_id TEXT PRIMARY KEY,
     project_id TEXT NOT NULL,
-    data TEXT NOT NULL
+    data TEXT NOT NULL,
+    output_html TEXT
 );
 """
 
@@ -66,6 +74,16 @@ def _init_db():
     """Create tables if they don't exist."""
     with sqlite3.connect(str(DB_PATH)) as conn:
         conn.executescript(_SCHEMA)
+        # Migration: add file_content column if missing (for existing DBs)
+        try:
+            conn.execute("ALTER TABLE documents ADD COLUMN file_content BLOB")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+        # Migration: add output_html column if missing
+        try:
+            conn.execute("ALTER TABLE generation_runs ADD COLUMN output_html TEXT")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
 
 
 # Initialize on import
@@ -127,6 +145,7 @@ def delete_project(project_id: str):
 # ── Documents ─────────────────────────────────────────────────────
 
 def get_documents(project_id: str) -> list[dict]:
+    """Get document metadata (without file bytes for efficiency)."""
     with _connect() as conn:
         rows = conn.execute(
             "SELECT data FROM documents WHERE project_id = ? ORDER BY rowid",
@@ -135,12 +154,23 @@ def get_documents(project_id: str) -> list[dict]:
     return [_from_json(r["data"]) for r in rows]
 
 
-def add_document(project_id: str, doc: dict):
+def add_document(project_id: str, doc: dict, file_bytes: bytes | None = None):
+    """Add document with optional file content stored as BLOB."""
     with _connect() as conn:
         conn.execute(
-            "INSERT INTO documents (id, project_id, data) VALUES (?, ?, ?)",
-            (doc["id"], project_id, _to_json(doc)),
+            "INSERT INTO documents (id, project_id, data, file_content) VALUES (?, ?, ?, ?)",
+            (doc["id"], project_id, _to_json(doc), file_bytes),
         )
+
+
+def get_document_bytes(project_id: str, doc_id: str) -> bytes | None:
+    """Retrieve raw file bytes for a document (for text extraction)."""
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT file_content FROM documents WHERE id = ? AND project_id = ?",
+            (doc_id, project_id),
+        ).fetchone()
+    return row["file_content"] if row else None
 
 
 def update_document(project_id: str, doc_id: str, doc: dict):
@@ -255,6 +285,7 @@ def set_attributes(project_id: str, attributes: list[dict]):
 # ── Generation Runs ──────────────────────────────────────────────
 
 def get_generation_runs(project_id: str) -> list[dict]:
+    """Get generation run metadata (without full HTML for list view)."""
     with _connect() as conn:
         rows = conn.execute(
             "SELECT data FROM generation_runs WHERE project_id = ? ORDER BY rowid DESC",
@@ -263,9 +294,20 @@ def get_generation_runs(project_id: str) -> list[dict]:
     return [_from_json(r["data"]) for r in rows]
 
 
-def add_generation_run(project_id: str, run: dict):
+def add_generation_run(project_id: str, run: dict, output_html: str | None = None):
+    """Store generation run with optional HTML content."""
     with _connect() as conn:
         conn.execute(
-            "INSERT INTO generation_runs (run_id, project_id, data) VALUES (?, ?, ?)",
-            (run["run_id"], project_id, _to_json(run)),
+            "INSERT INTO generation_runs (run_id, project_id, data, output_html) VALUES (?, ?, ?, ?)",
+            (run["run_id"], project_id, _to_json(run), output_html),
         )
+
+
+def get_generation_html(project_id: str, run_id: str) -> str | None:
+    """Retrieve the generated HTML for a specific run."""
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT output_html FROM generation_runs WHERE run_id = ? AND project_id = ?",
+            (run_id, project_id),
+        ).fetchone()
+    return row["output_html"] if row else None

@@ -1,9 +1,11 @@
 """
 Extract plain text from uploaded documents (PDF, DOCX, XLSX).
 
+SERVERLESS-COMPATIBLE: Works with in-memory bytes, not filesystem paths.
 Used to feed document content into the Claude generation prompt.
 """
 
+import io
 from pathlib import Path
 
 import pdfplumber
@@ -11,25 +13,36 @@ from docx import Document as DocxDocument
 from openpyxl import load_workbook
 
 
-def extract_text(file_path: str) -> str:
-    """Extract text from a file based on its extension."""
-    path = Path(file_path)
-    ext = path.suffix.lower()
+def extract_text_from_bytes(file_bytes: bytes, file_type: str) -> str:
+    """
+    Extract text from file bytes based on file type.
 
-    if ext == ".pdf":
-        return _extract_pdf(path)
-    elif ext in (".docx", ".doc"):
-        return _extract_docx(path)
-    elif ext in (".xlsx", ".xls"):
-        return _extract_xlsx(path)
+    SERVERLESS: This function works entirely in-memory, no filesystem needed.
+
+    Args:
+        file_bytes: Raw file content as bytes
+        file_type: File extension without dot (e.g., "pdf", "docx", "xlsx")
+
+    Returns:
+        Extracted text content
+    """
+    ext = file_type.lower().lstrip(".")
+
+    if ext == "pdf":
+        return _extract_pdf_bytes(file_bytes)
+    elif ext in ("docx", "doc"):
+        return _extract_docx_bytes(file_bytes)
+    elif ext in ("xlsx", "xls"):
+        return _extract_xlsx_bytes(file_bytes)
     else:
         return ""
 
 
-def _extract_pdf(path: Path) -> str:
-    """Extract text from PDF using pdfplumber."""
+def _extract_pdf_bytes(file_bytes: bytes) -> str:
+    """Extract text from PDF bytes using pdfplumber."""
     pages = []
-    with pdfplumber.open(str(path)) as pdf:
+    # pdfplumber can open from a file-like object
+    with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
         for page in pdf.pages:
             text = page.extract_text()
             if text:
@@ -45,9 +58,10 @@ def _extract_pdf(path: Path) -> str:
     return "\n\n".join(pages)
 
 
-def _extract_docx(path: Path) -> str:
-    """Extract text from DOCX."""
-    doc = DocxDocument(str(path))
+def _extract_docx_bytes(file_bytes: bytes) -> str:
+    """Extract text from DOCX bytes."""
+    # python-docx can open from a file-like object
+    doc = DocxDocument(io.BytesIO(file_bytes))
     parts = []
 
     for para in doc.paragraphs:
@@ -63,9 +77,10 @@ def _extract_docx(path: Path) -> str:
     return "\n".join(parts)
 
 
-def _extract_xlsx(path: Path) -> str:
-    """Extract text from XLSX spreadsheet."""
-    wb = load_workbook(str(path), data_only=True)
+def _extract_xlsx_bytes(file_bytes: bytes) -> str:
+    """Extract text from XLSX bytes."""
+    # openpyxl can open from a file-like object
+    wb = load_workbook(io.BytesIO(file_bytes), data_only=True)
     parts = []
 
     for sheet_name in wb.sheetnames:
@@ -77,3 +92,19 @@ def _extract_xlsx(path: Path) -> str:
                 parts.append(" | ".join(cells))
 
     return "\n".join(parts)
+
+
+# ── Legacy file-path API (for local development compatibility) ──────
+
+def extract_text(file_path: str) -> str:
+    """
+    Extract text from a file path (legacy API for local dev).
+
+    For serverless, use extract_text_from_bytes() instead.
+    """
+    path = Path(file_path)
+    if not path.exists():
+        return ""
+
+    file_bytes = path.read_bytes()
+    return extract_text_from_bytes(file_bytes, path.suffix)

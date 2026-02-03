@@ -2,22 +2,19 @@
 API routes for project management, document upload, extraction,
 generation, and validation.
 
-Uses SQLite for persistence across restarts.
+SERVERLESS-COMPATIBLE: No filesystem persistence. All data stored in SQLite
+(which lives in /tmp on Vercel — ephemeral but sufficient for demo).
 """
 
-import os
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Optional
 from uuid import uuid4
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
-from fastapi.responses import FileResponse
+from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel
 
 from app import db
-
-_ON_VERCEL = os.environ.get("VERCEL") == "1"
 
 router = APIRouter(prefix="/api/v1", tags=["projects"])
 
@@ -144,11 +141,17 @@ async def upload_document(
     classification: Optional[str] = Form(None),
     notes: Optional[str] = Form(None),
 ):
-    """Upload a document. Classification is auto-detected if not provided."""
+    """
+    Upload a document. Classification is auto-detected if not provided.
+
+    SERVERLESS: File bytes are stored directly in SQLite BLOB column,
+    not on the filesystem. This ensures data survives across requests.
+    """
     project = db.get_project(project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
+    # Read file bytes into memory
     content = await file.read()
     filename = file.filename or "unknown"
 
@@ -158,15 +161,7 @@ async def upload_document(
     authority = "authoritative" if classification in _AUTHORITATIVE else "supporting"
     doc_id = str(uuid4())
 
-    # Save file to disk for later extraction
-    if _ON_VERCEL:
-        upload_dir = Path("/tmp/uploads") / project_id
-    else:
-        upload_dir = Path(__file__).resolve().parent.parent.parent.parent / "uploads" / project_id
-    upload_dir.mkdir(parents=True, exist_ok=True)
-    file_path = upload_dir / f"{doc_id}_{filename}"
-    file_path.write_bytes(content)
-
+    # Document metadata — no file_path since we store bytes in DB
     doc = {
         "id": doc_id,
         "filename": filename,
@@ -177,11 +172,12 @@ async def upload_document(
         "auto_classified": True,
         "checksum_sha256": "demo",
         "file_size_bytes": len(content),
-        "file_path": str(file_path),
         "uploaded_at": _now(),
         "notes": notes,
     }
-    db.add_document(project_id, doc)
+    # Store document metadata AND file bytes in SQLite
+    db.add_document(project_id, doc, file_bytes=content)
+
     project["document_count"] = db.count_documents(project_id)
     project["updated_at"] = _now()
     db.upsert_project(project)
@@ -513,6 +509,12 @@ async def validate_project(project_id: str):
 
 @router.post("/projects/{project_id}/generate", status_code=status.HTTP_202_ACCEPTED)
 async def trigger_generation(project_id: str, body: GenerationRequest):
+    """
+    Generate CTD stability document using Claude API.
+
+    SERVERLESS: Generated HTML is stored in SQLite, not filesystem.
+    The response includes the run_id which can be used to retrieve HTML.
+    """
     project = db.get_project(project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -526,8 +528,10 @@ async def trigger_generation(project_id: str, body: GenerationRequest):
     try:
         from app.services.generation.ctd_writer import generate_stability_document
 
-        result = await generate_stability_document(
+        # Pass project_id so ctd_writer can fetch document bytes from DB
+        result, html_content = await generate_stability_document(
             project=project,
+            project_id=project_id,
             studies=project_studies,
             lots=project_lots,
             conditions=project_conditions,
@@ -540,7 +544,8 @@ async def trigger_generation(project_id: str, body: GenerationRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Generation failed: {e}")
 
-    db.add_generation_run(project_id, result)
+    # Store run metadata AND HTML content in SQLite
+    db.add_generation_run(project_id, result, output_html=html_content)
     return result
 
 
@@ -558,31 +563,34 @@ async def get_generation_status(project_id: str, run_id: str):
     raise HTTPException(status_code=404, detail="Run not found")
 
 
-# ── File download endpoint ────────────────────────────────────────
+# ── File download endpoint (serves HTML from SQLite) ────────────────
 
 @router.get("/outputs/{run_id}/{filename}")
 async def download_output(run_id: str, filename: str):
-    """Serve a generated output file."""
-    if _ON_VERCEL:
-        output_dir = Path("/tmp/generated_outputs") / run_id
-    else:
-        output_dir = Path(__file__).resolve().parent.parent.parent.parent / "generated_outputs" / run_id
-    file_path = output_dir / filename
-    if not file_path.exists():
-        raise HTTPException(status_code=404, detail="File not found")
+    """
+    Serve generated output from SQLite storage.
 
-    media_types = {
-        ".pdf": "application/pdf",
-        ".html": "text/html",
-        ".json": "application/json",
-        ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    }
-    media_type = media_types.get(file_path.suffix, "application/octet-stream")
-    return FileResponse(
-        path=str(file_path),
-        filename=filename,
-        media_type=media_type,
-    )
+    SERVERLESS: HTML is stored in DB, not filesystem.
+    We need to find which project owns this run_id.
+    """
+    # Find the project that owns this run
+    all_projects = db.get_all_projects()
+    for project in all_projects:
+        html_content = db.get_generation_html(project["id"], run_id)
+        if html_content:
+            if filename.endswith(".html"):
+                return HTMLResponse(content=html_content, media_type="text/html")
+            elif filename.endswith(".json"):
+                # Return traceability info from run metadata
+                runs = db.get_generation_runs(project["id"])
+                for r in runs:
+                    if r["run_id"] == run_id:
+                        return Response(
+                            content=str(r),
+                            media_type="application/json",
+                        )
+
+    raise HTTPException(status_code=404, detail="File not found")
 
 
 # ── Audit log ───────────────────────────────────────────────────────

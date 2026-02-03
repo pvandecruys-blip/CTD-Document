@@ -1,15 +1,16 @@
 """
 CTD Stability Document Writer — 3.2.S.7.3 Stability Data.
 
-Uses Claude API to generate Word-friendly HTML for CTD Module 3 section 3.2.S.7.3,
-then converts the HTML to a formatted PDF via xhtml2pdf.
+SERVERLESS-COMPATIBLE: No filesystem writes. Generated HTML is returned
+directly and stored in SQLite by the caller.
+
+Uses Claude API to generate Word-friendly HTML for CTD Module 3 section 3.2.S.7.3.
 """
 
 import json
 import os
 import re
 from datetime import datetime, timezone
-from pathlib import Path
 from uuid import uuid4
 
 import anthropic
@@ -319,47 +320,56 @@ body {{ font-family: Arial, Helvetica, sans-serif; font-size: 11pt; color: #333;
     return cleaned
 
 
-# ── Output directory ─────────────────────────────────────────────
-_ON_VERCEL = os.environ.get("VERCEL") == "1"
-if _ON_VERCEL:
-    OUTPUT_DIR = Path("/tmp/generated_outputs")
-else:
-    OUTPUT_DIR = Path(__file__).resolve().parent.parent.parent.parent / "generated_outputs"
-OUTPUT_DIR.mkdir(exist_ok=True)
-
-
 async def generate_stability_document(
     project: dict,
+    project_id: str,
     studies: list[dict],
     lots: list[dict],
     conditions: list[dict],
     attributes: list[dict],
     options: dict,
     documents: list[dict] | None = None,
-) -> dict:
+) -> tuple[dict, str]:
     """
     Generate a CTD 3.2.S.7.3 stability data document using Claude API.
 
-    Returns a dict with run metadata and output file paths.
+    SERVERLESS: No files written to disk. Returns tuple of (metadata, html_content).
+    The caller is responsible for storing the HTML (e.g., in SQLite).
+
+    Args:
+        project: Project metadata dict
+        project_id: Project ID (used to fetch document bytes from DB)
+        studies, lots, conditions, attributes: Extracted stability data
+        options: Generation options
+        documents: Document metadata list (bytes fetched from DB)
+
+    Returns:
+        Tuple of (run_metadata_dict, html_content_string)
     """
     run_id = str(uuid4())
     now = datetime.now(timezone.utc)
 
-    # 1. Extract text from uploaded documents
+    # 1. Extract text from uploaded documents (fetching bytes from SQLite)
     document_texts = []
     if documents:
-        from app.services.extraction.text_extractor import extract_text
+        from app import db
+        from app.services.extraction.text_extractor import extract_text_from_bytes
+
         for doc in documents:
-            file_path = doc.get("file_path")
-            if file_path and Path(file_path).exists():
+            doc_id = doc.get("id")
+            file_type = doc.get("file_type", "")
+            if doc_id and file_type:
                 try:
-                    text = extract_text(file_path)
-                    if text.strip():
-                        document_texts.append({
-                            "filename": doc.get("original_filename", "Unknown"),
-                            "classification": doc.get("classification", "unknown"),
-                            "text": text,
-                        })
+                    # Fetch file bytes from SQLite BLOB column
+                    file_bytes = db.get_document_bytes(project_id, doc_id)
+                    if file_bytes:
+                        text = extract_text_from_bytes(file_bytes, file_type)
+                        if text.strip():
+                            document_texts.append({
+                                "filename": doc.get("original_filename", "Unknown"),
+                                "classification": doc.get("classification", "unknown"),
+                                "text": text,
+                            })
                 except Exception:
                     pass  # Skip files that can't be parsed
 
@@ -369,7 +379,7 @@ async def generate_stability_document(
         document_texts=document_texts or None,
     )
 
-    # 2. Call Claude API
+    # 3. Call Claude API
     client = _get_client()
     message = client.messages.create(
         model=MODEL,
@@ -379,34 +389,11 @@ async def generate_stability_document(
 
     response_text = message.content[0].text
 
-    # 3. Clean HTML response
+    # 4. Clean HTML response
     html_content = _clean_html_response(response_text)
 
-    # 4. Save files
-    run_dir = OUTPUT_DIR / run_id
-    run_dir.mkdir(exist_ok=True)
-
-    # Save the HTML document (primary output)
-    html_path = run_dir / "3.2.S.7.3_stability.html"
-    html_path.write_text(html_content, encoding="utf-8")
-
-    # Save traceability JSON
-    trace_path = run_dir / "traceability.json"
-    trace_data = {
-        "run_id": run_id,
-        "generated_at": now.isoformat(),
-        "model": MODEL,
-        "prompt_tokens": message.usage.input_tokens,
-        "completion_tokens": message.usage.output_tokens,
-        "project": project.get("name"),
-        "studies_count": len(studies),
-        "lots_count": len(lots),
-        "conditions_count": len(conditions),
-        "attributes_count": len(attributes),
-    }
-    trace_path.write_text(json.dumps(trace_data, indent=2, default=str))
-
-    return {
+    # 5. Build run metadata (no file paths — HTML stored in DB by caller)
+    run_metadata = {
         "run_id": run_id,
         "status": "completed",
         "outputs": {
@@ -420,4 +407,20 @@ async def generate_stability_document(
             "input_tokens": message.usage.input_tokens,
             "output_tokens": message.usage.output_tokens,
         },
+        # Inline traceability data (no separate file needed)
+        "traceability": {
+            "run_id": run_id,
+            "generated_at": now.isoformat(),
+            "model": MODEL,
+            "prompt_tokens": message.usage.input_tokens,
+            "completion_tokens": message.usage.output_tokens,
+            "project": project.get("name"),
+            "studies_count": len(studies),
+            "lots_count": len(lots),
+            "conditions_count": len(conditions),
+            "attributes_count": len(attributes),
+        },
     }
+
+    # Return both metadata and HTML content
+    return run_metadata, html_content
