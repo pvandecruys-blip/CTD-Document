@@ -178,8 +178,8 @@ export default function ProjectDashboard() {
       const type = section.id === 's7' ? 'ds' : 'dp';
       navigate(`/project/${projectId}/stability/${type}/dashboard`);
     } else {
-      // Route to preview section
-      navigate(`/project/${projectId}/section/${section.id}/dashboard`);
+      // Route to preview section (goes directly to documents)
+      navigate(`/project/${projectId}/section/${section.id}/documents`);
     }
   };
 

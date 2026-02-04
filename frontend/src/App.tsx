@@ -29,7 +29,6 @@ import ExtractionReview from './pages/ExtractionReview';
 import GenerationWizard from './pages/GenerationWizard';
 import ValidationReport from './pages/ValidationReport';
 import RegulatoryLibrary from './pages/RegulatoryLibrary';
-import PreviewDashboard from './pages/PreviewDashboard';
 import PreviewDocuments from './pages/PreviewDocuments';
 import PreviewExtraction from './pages/PreviewExtraction';
 import PreviewGenerate from './pages/PreviewGenerate';
@@ -45,7 +44,6 @@ const STABILITY_NAV_ITEMS = [
 ];
 
 const PREVIEW_NAV_ITEMS = [
-  { to: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { to: 'documents', label: 'Documents', icon: Upload },
   { to: 'extraction', label: 'Extraction Review', icon: TableProperties },
   { to: 'generate', label: 'Generate & Download', icon: Wand2 },
@@ -280,8 +278,7 @@ function SectionShell({ config, projectId }: { config: SectionConfig; projectId:
       {/* Main content */}
       <main className="flex-1 overflow-y-auto bg-gray-50">
         <Routes>
-          <Route path="/" element={<Navigate to={`${basePath}/dashboard`} replace />} />
-          <Route path="/dashboard" element={<PreviewDashboard />} />
+          <Route path="/" element={<Navigate to={`${basePath}/documents`} replace />} />
           <Route path="/documents" element={<PreviewDocuments />} />
           <Route path="/extraction" element={<PreviewExtraction />} />
           <Route path="/generate" element={<PreviewGenerate />} />
