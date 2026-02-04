@@ -71,14 +71,13 @@ export default function Documents() {
           const page = await pdf.getPage(i);
           const content = await page.getTextContent();
 
-          // Extract items with position data
-          type TextItem = { str: string; transform: number[] };
-          const items = content.items
-            .filter((item): item is TextItem => 'str' in item && 'transform' in item)
+          // Extract items with position data - use any to handle PDF.js type variations
+          const items = (content.items as Array<{ str?: string; transform?: number[] }>)
+            .filter((item) => item.str && item.transform)
             .map((item) => ({
-              text: item.str,
-              x: Math.round(item.transform[4]), // X position
-              y: Math.round(item.transform[5]), // Y position
+              text: item.str!,
+              x: Math.round(item.transform![4]), // X position
+              y: Math.round(item.transform![5]), // Y position
             }))
             .filter((item) => item.text.trim()); // Remove empty items
 
