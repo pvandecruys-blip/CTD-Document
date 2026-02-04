@@ -105,14 +105,38 @@ export const projects = {
     const filtered = items.filter((p) => p.id !== id);
     setStorage(STORAGE_KEYS.PROJECTS, filtered);
 
-    // Also delete related data
+    // Delete all related data for this project
     const docs = getStorage<Record<string, DocumentFile[]>>(STORAGE_KEYS.DOCUMENTS, {});
     delete docs[id];
     setStorage(STORAGE_KEYS.DOCUMENTS, docs);
 
-    const studies = getStorage<Record<string, Study[]>>(STORAGE_KEYS.STUDIES, {});
-    delete studies[id];
-    setStorage(STORAGE_KEYS.STUDIES, studies);
+    const allStudies = getStorage<Record<string, Study[]>>(STORAGE_KEYS.STUDIES, {});
+    delete allStudies[id];
+    setStorage(STORAGE_KEYS.STUDIES, allStudies);
+
+    const allLots = getStorage<Record<string, Lot[]>>(STORAGE_KEYS.LOTS, {});
+    delete allLots[id];
+    setStorage(STORAGE_KEYS.LOTS, allLots);
+
+    const allConditions = getStorage<Record<string, StorageCondition[]>>(STORAGE_KEYS.CONDITIONS, {});
+    delete allConditions[id];
+    setStorage(STORAGE_KEYS.CONDITIONS, allConditions);
+
+    const allAttributes = getStorage<Record<string, QualityAttribute[]>>(STORAGE_KEYS.ATTRIBUTES, {});
+    delete allAttributes[id];
+    setStorage(STORAGE_KEYS.ATTRIBUTES, allAttributes);
+
+    // Delete generation runs for this project
+    const runs = getStorage<(GenerationRun & { project_id?: string })[]>(STORAGE_KEYS.GENERATION_RUNS, []);
+    const filteredRuns = runs.filter((r) => r.project_id !== id);
+    setStorage(STORAGE_KEYS.GENERATION_RUNS, filteredRuns);
+
+    // Delete generated HTML for this project's runs
+    const htmlStorage = getStorage<Record<string, string>>('ctd_generated_html', {});
+    runs.filter((r) => r.project_id === id).forEach((r) => {
+      delete htmlStorage[r.run_id];
+    });
+    setStorage('ctd_generated_html', htmlStorage);
   },
 };
 
@@ -323,7 +347,7 @@ export const extraction = {
       }));
       setStorage(STORAGE_KEYS.STUDIES, allStudies);
 
-      // Store extracted conditions
+      // Store extracted conditions (per-project)
       const conditionsList: StorageCondition[] = (extracted.conditions || []).map((c: { label?: string; temperature_setpoint?: number; humidity?: string; confidence?: number }, idx: number) => ({
         id: generateId('cond'),
         label: c.label || `Condition ${idx + 1}`,
@@ -333,9 +357,11 @@ export const extraction = {
         extraction_status: 'confirmed' as const,
         confidence: c.confidence || 0.8,
       }));
-      setStorage(STORAGE_KEYS.CONDITIONS, conditionsList);
+      const allConditions = getStorage<Record<string, StorageCondition[]>>(STORAGE_KEYS.CONDITIONS, {});
+      allConditions[projectId] = conditionsList;
+      setStorage(STORAGE_KEYS.CONDITIONS, allConditions);
 
-      // Store extracted attributes
+      // Store extracted attributes (per-project)
       const attrList: QualityAttribute[] = (extracted.attributes || []).map((a: { name?: string; method_group?: string; analytical_procedure?: string; acceptance_criteria?: string; confidence?: number }, idx: number) => ({
         id: generateId('attr'),
         name: a.name || `Attribute ${idx + 1}`,
@@ -348,7 +374,9 @@ export const extraction = {
           ? [{ id: generateId('crit'), criteria_text: a.acceptance_criteria }]
           : [],
       }));
-      setStorage(STORAGE_KEYS.ATTRIBUTES, attrList);
+      const allAttributes = getStorage<Record<string, QualityAttribute[]>>(STORAGE_KEYS.ATTRIBUTES, {});
+      allAttributes[projectId] = attrList;
+      setStorage(STORAGE_KEYS.ATTRIBUTES, allAttributes);
 
       // Store extracted lots
       const allLots = getStorage<Record<string, Lot[]>>(STORAGE_KEYS.LOTS, {});
@@ -419,7 +447,9 @@ export const extraction = {
       { id: generateId('cond'), label: '25°C/60% RH', temperature_setpoint: 25, humidity: '60% RH', display_order: 1, extraction_status: 'confirmed', confidence: 0.95 },
       { id: generateId('cond'), label: '40°C/75% RH', temperature_setpoint: 40, humidity: '75% RH', display_order: 2, extraction_status: 'confirmed', confidence: 0.93 },
     ];
-    setStorage(STORAGE_KEYS.CONDITIONS, conditionsList);
+    const allConditions = getStorage<Record<string, StorageCondition[]>>(STORAGE_KEYS.CONDITIONS, {});
+    allConditions[projectId] = conditionsList;
+    setStorage(STORAGE_KEYS.CONDITIONS, allConditions);
 
     const attrList: QualityAttribute[] = [
       { id: generateId('attr'), name: 'Appearance', method_group: 'Physical', display_order: 1, extraction_status: 'confirmed', confidence: 0.90, acceptance_criteria: [{ id: generateId('crit'), criteria_text: 'White to off-white powder' }] },
@@ -427,7 +457,9 @@ export const extraction = {
       { id: generateId('attr'), name: 'Related Substances', method_group: 'Chemical', analytical_procedure: 'HPLC', display_order: 3, extraction_status: 'confirmed', confidence: 0.91, acceptance_criteria: [{ id: generateId('crit'), criteria_text: 'Total: NMT 2.0%' }] },
       { id: generateId('attr'), name: 'Water Content', method_group: 'Physical', analytical_procedure: 'Karl Fischer', display_order: 4, extraction_status: 'confirmed', confidence: 0.89, acceptance_criteria: [{ id: generateId('crit'), criteria_text: 'NMT 0.5%' }] },
     ];
-    setStorage(STORAGE_KEYS.ATTRIBUTES, attrList);
+    const allAttributes = getStorage<Record<string, QualityAttribute[]>>(STORAGE_KEYS.ATTRIBUTES, {});
+    allAttributes[projectId] = attrList;
+    setStorage(STORAGE_KEYS.ATTRIBUTES, allAttributes);
 
     const job: ExtractionJob = {
       job_id: generateId('extract'),
@@ -491,18 +523,20 @@ export const lots = {
 
 // ── Conditions ──────────────────────────────────────────────────────
 export const conditions = {
-  list: async (_projectId: string, _studyId?: string) => {
+  list: async (projectId: string, _studyId?: string) => {
     await delay();
-    const items = getStorage<StorageCondition[]>(STORAGE_KEYS.CONDITIONS, []);
+    const allConditions = getStorage<Record<string, StorageCondition[]>>(STORAGE_KEYS.CONDITIONS, {});
+    const items = allConditions[projectId] || [];
     return { items };
   },
 };
 
 // ── Attributes ──────────────────────────────────────────────────────
 export const attributes = {
-  list: async (_projectId: string, _studyId?: string) => {
+  list: async (projectId: string, _studyId?: string) => {
     await delay();
-    const items = getStorage<QualityAttribute[]>(STORAGE_KEYS.ATTRIBUTES, []);
+    const allAttributes = getStorage<Record<string, QualityAttribute[]>>(STORAGE_KEYS.ATTRIBUTES, {});
+    const items = allAttributes[projectId] || [];
     return { items };
   },
 };
@@ -622,8 +656,9 @@ export const generation = {
       htmlStorage[runId] = result.html || result.content || '';
       setStorage(GENERATED_HTML_KEY, htmlStorage);
 
-      const newRun: GenerationRun = {
+      const newRun: GenerationRun & { project_id: string } = {
         run_id: runId,
+        project_id: req.project.id,
         status: 'completed' as GenerationStatus,
         created_at: new Date().toISOString(),
         completed_at: new Date().toISOString(),
@@ -638,7 +673,7 @@ export const generation = {
       };
 
       // Save generation run
-      const runs = getStorage<GenerationRun[]>(STORAGE_KEYS.GENERATION_RUNS, []);
+      const runs = getStorage<(GenerationRun & { project_id?: string })[]>(STORAGE_KEYS.GENERATION_RUNS, []);
       runs.unshift(newRun);
       setStorage(STORAGE_KEYS.GENERATION_RUNS, runs);
 
@@ -653,7 +688,7 @@ export const generation = {
   },
 
   // Fallback mock generation when API is unavailable
-  startMock: async (_req: GenerateRequest) => {
+  startMock: async (req: GenerateRequest) => {
     await delay(2000);
 
     const runId = generateId('gen');
@@ -683,8 +718,9 @@ export const generation = {
     htmlStorage[runId] = mockHtml;
     setStorage(GENERATED_HTML_KEY, htmlStorage);
 
-    const newRun: GenerationRun = {
+    const newRun: GenerationRun & { project_id: string } = {
       run_id: runId,
+      project_id: req.project.id,
       status: 'completed' as GenerationStatus,
       created_at: new Date().toISOString(),
       completed_at: new Date().toISOString(),
@@ -698,7 +734,7 @@ export const generation = {
       },
     };
 
-    const runs = getStorage<GenerationRun[]>(STORAGE_KEYS.GENERATION_RUNS, []);
+    const runs = getStorage<(GenerationRun & { project_id?: string })[]>(STORAGE_KEYS.GENERATION_RUNS, []);
     runs.unshift(newRun);
     setStorage(STORAGE_KEYS.GENERATION_RUNS, runs);
 
@@ -725,9 +761,11 @@ export const generation = {
     };
   },
 
-  list: async (_projectId: string) => {
+  list: async (projectId: string) => {
     await delay();
-    const items = getStorage<GenerationRun[]>(STORAGE_KEYS.GENERATION_RUNS, []);
+    const allRuns = getStorage<(GenerationRun & { project_id?: string })[]>(STORAGE_KEYS.GENERATION_RUNS, []);
+    // Filter runs by project ID
+    const items = allRuns.filter((r) => r.project_id === projectId);
     return { items };
   },
 };

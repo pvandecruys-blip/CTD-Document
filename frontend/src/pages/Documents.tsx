@@ -8,9 +8,14 @@ import {
   RefreshCw,
   ChevronDown,
 } from 'lucide-react';
+import * as pdfjsLib from 'pdfjs-dist';
+import mammoth from 'mammoth';
 import type { DocumentFile, DocumentClassification } from '../types';
 import { useProject } from '../context/ProjectContext';
 import { documents } from '../api/client';
+
+// Configure PDF.js worker
+pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
 
 const CLASSIFICATION_OPTIONS: { value: DocumentClassification; label: string }[] = [
   { value: 'stability_plan', label: 'Stability Plan' },
@@ -45,13 +50,52 @@ export default function Documents() {
 
   useEffect(() => { load(); }, [load]);
 
-  const readFileAsText = (file: File): Promise<string> => {
-    return new Promise((resolve) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result as string || '');
-      reader.onerror = () => resolve('');
-      reader.readAsText(file);
-    });
+  // Extract text from various file types
+  const extractTextFromFile = async (file: File): Promise<string> => {
+    const ext = file.name.slice(file.name.lastIndexOf('.')).toLowerCase();
+
+    try {
+      // PDF extraction using PDF.js
+      if (ext === '.pdf') {
+        const arrayBuffer = await file.arrayBuffer();
+        const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+        const textParts: string[] = [];
+
+        for (let i = 1; i <= pdf.numPages; i++) {
+          const page = await pdf.getPage(i);
+          const content = await page.getTextContent();
+          const pageText = content.items
+            .map((item) => ('str' in item ? (item as { str: string }).str : ''))
+            .join(' ');
+          textParts.push(pageText);
+        }
+
+        return textParts.join('\n\n');
+      }
+
+      // DOCX extraction using Mammoth
+      if (ext === '.docx') {
+        const arrayBuffer = await file.arrayBuffer();
+        const result = await mammoth.extractRawText({ arrayBuffer });
+        return result.value;
+      }
+
+      // Plain text and other text-based files
+      if (ext === '.txt' || ext === '.csv' || ext === '.xml') {
+        return new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result as string || '');
+          reader.onerror = () => resolve('');
+          reader.readAsText(file);
+        });
+      }
+
+      // For unsupported formats, return a notice
+      return `[File type ${ext} not supported for text extraction. Please upload PDF, DOCX, or TXT files for best results.]`;
+    } catch (error) {
+      console.error('Text extraction error:', error);
+      return `[Error extracting text from ${file.name}]`;
+    }
   };
 
   const uploadFiles = async (files: FileList | File[]) => {
@@ -65,7 +109,7 @@ export default function Documents() {
     for (let i = 0; i < fileArr.length; i++) {
       setUploadQueue((q) => q.map((item, idx) => idx === i ? { ...item, status: 'uploading' } : item));
       try {
-        const text = await readFileAsText(fileArr[i]);
+        const text = await extractTextFromFile(fileArr[i]);
         await documents.upload(pid, fileArr[i].name, text);
         setUploadQueue((q) => q.map((item, idx) => idx === i ? { ...item, status: 'done' } : item));
       } catch {
