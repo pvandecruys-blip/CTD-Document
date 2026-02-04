@@ -206,6 +206,35 @@ When source documents are provided:
 4. Identify storage conditions from document context
 5. Match timepoints to column headers
 6. If a value appears as "Conforms" or "Meets", include the actual numeric value if available
+
+# QUALITY CHECKLIST (Self-Verify Before Output)
+
+Before returning the HTML, verify:
+□ Document starts with <!DOCTYPE html>
+□ All sections present in correct order
+□ All internal links have matching anchor IDs
+□ Table numbering is sequential and consistent
+□ No placeholder text like "[INSERT]" or "TBD" remains
+□ All tables have header rows with correct styling
+□ CSS @page rule is present for A4 printing
+□ Document ends with </html>
+
+# DETERMINISM REQUIREMENTS
+
+You must produce identical output for identical input. Follow these rules strictly:
+
+1. **No Creative Variation**: Do not vary wording, phrasing, or sentence structure between runs
+2. **Fixed Boilerplate**: Use exact wording specified in this prompt for all standard text
+3. **Consistent Ordering**: Always process and output data in the same order (by ID, then alphabetically)
+4. **No Embellishment**: Do not add commentary, suggestions, or explanatory text not in the input
+5. **Exact CSS**: Use the CSS values specified exactly (colors, sizes, fonts) - no variations
+6. **Fixed Anchor IDs**: Generate anchor IDs as: `toc`, `lot`, `abbrev`, `intro`, `table-1`, `table-2`, etc.
+7. **Standard Introduction**: Always use this exact text:
+   "Batches of [DRUG NAME] placed into stability studies, the storage conditions utilized, and the data collected to date are presented in the table below and in subsequent tables."
+8. **No Timestamps**: Do not include generation timestamps, dates, or version numbers in output
+9. **Consistent Whitespace**: Use consistent indentation (2 spaces) and line breaks throughout
+
+The same input data must always produce byte-identical HTML output.
 """
 
 
