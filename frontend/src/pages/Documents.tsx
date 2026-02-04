@@ -15,7 +15,7 @@ import { useProject } from '../context/ProjectContext';
 import { documents } from '../api/client';
 
 // Configure PDF.js worker
-pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
+pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
 
 const CLASSIFICATION_OPTIONS: { value: DocumentClassification; label: string }[] = [
   { value: 'stability_plan', label: 'Stability Plan' },
@@ -53,12 +53,19 @@ export default function Documents() {
   // Extract text from various file types
   const extractTextFromFile = async (file: File): Promise<string> => {
     const ext = file.name.slice(file.name.lastIndexOf('.')).toLowerCase();
+    console.log(`Extracting text from ${file.name} (${ext}, ${file.size} bytes)`);
 
     try {
       // PDF extraction using PDF.js
       if (ext === '.pdf') {
+        console.log('Starting PDF extraction...');
         const arrayBuffer = await file.arrayBuffer();
-        const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+        console.log(`PDF arrayBuffer size: ${arrayBuffer.byteLength}`);
+
+        const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
+        const pdf = await loadingTask.promise;
+        console.log(`PDF loaded: ${pdf.numPages} pages`);
+
         const textParts: string[] = [];
 
         for (let i = 1; i <= pdf.numPages; i++) {
@@ -70,22 +77,30 @@ export default function Documents() {
           textParts.push(pageText);
         }
 
-        return textParts.join('\n\n');
+        const fullText = textParts.join('\n\n');
+        console.log(`PDF extraction complete: ${fullText.length} characters`);
+        return fullText || `[PDF ${file.name} contains no extractable text - may be scanned/image-based]`;
       }
 
       // DOCX extraction using Mammoth
       if (ext === '.docx') {
+        console.log('Starting DOCX extraction...');
         const arrayBuffer = await file.arrayBuffer();
         const result = await mammoth.extractRawText({ arrayBuffer });
-        return result.value;
+        console.log(`DOCX extraction complete: ${result.value.length} characters`);
+        return result.value || `[DOCX ${file.name} contains no text]`;
       }
 
       // Plain text and other text-based files
       if (ext === '.txt' || ext === '.csv' || ext === '.xml') {
         return new Promise((resolve) => {
           const reader = new FileReader();
-          reader.onload = () => resolve(reader.result as string || '');
-          reader.onerror = () => resolve('');
+          reader.onload = () => {
+            const text = reader.result as string || '';
+            console.log(`Text file read: ${text.length} characters`);
+            resolve(text);
+          };
+          reader.onerror = () => resolve(`[Error reading ${file.name}]`);
           reader.readAsText(file);
         });
       }
@@ -94,7 +109,7 @@ export default function Documents() {
       return `[File type ${ext} not supported for text extraction. Please upload PDF, DOCX, or TXT files for best results.]`;
     } catch (error) {
       console.error('Text extraction error:', error);
-      return `[Error extracting text from ${file.name}]`;
+      return `[Error extracting text from ${file.name}: ${error instanceof Error ? error.message : 'Unknown error'}]`;
     }
   };
 
