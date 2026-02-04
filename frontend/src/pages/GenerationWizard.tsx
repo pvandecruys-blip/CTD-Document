@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { ChevronRight, ChevronLeft, Wand2, Check, Download, FileText, Clock, CheckCircle2, XCircle, Loader2 } from 'lucide-react';
-import type { GenerationOptions, GenerationRun, GenerationStatus } from '../types';
+import type { GenerationRun, GenerationStatus } from '../types';
 import { useProject } from '../context/ProjectContext';
-import { generation } from '../api/client';
+import { generation, studies, lots, conditions, attributes, documents, type GenerateRequest } from '../api/client';
 
 type Step = 1 | 2 | 3;
 
@@ -39,20 +39,37 @@ export default function GenerationWizard() {
 
   useEffect(() => { loadPastRuns(); }, [current?.id]);
 
-  const buildOptions = (): GenerationOptions => ({
-    sections: { ds_blanked: false, dp_generate: false, dp_link_only: false },
-    included_conditions: [],
-    included_lots: [],
-    output_formats: ['pdf'],
-    table_numbering: { dp_prefix: '', ds_prefix: tablePrefix },
-    include_traceability: includeTrace,
-  });
-
   const handleGenerate = async () => {
     if (!current) return;
     setGenerating(true);
     try {
-      const result = await generation.start(current.id, buildOptions());
+      // Fetch all project data to send to the generation API
+      const [studyData, lotData, conditionData, attrData, docData] = await Promise.all([
+        studies.list(current.id),
+        lots.list(current.id),
+        conditions.list(current.id),
+        attributes.list(current.id),
+        documents.list(current.id),
+      ]);
+
+      const request: GenerateRequest = {
+        project: {
+          id: current.id,
+          name: current.name,
+          description: current.description,
+        },
+        studies: studyData.items,
+        lots: lotData.items,
+        conditions: conditionData.items,
+        attributes: attrData.items,
+        documents: docData.items.map((d) => ({
+          filename: d.original_filename,
+          extracted_text: (d as any).extracted_text || '',
+          classification: d.classification,
+        })),
+      };
+
+      const result = await generation.start(request);
       setRun(result);
       await loadPastRuns();
     } catch { /* */ } finally {
