@@ -11,6 +11,7 @@ import anthropic
 # Configuration
 API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 BASE_URL = os.environ.get("ANTHROPIC_BASE_URL", "https://genai-sharedservice-emea.pwc.com")
+MODEL = os.environ.get("ANTHROPIC_MODEL", "vertex_ai.anthropic.claude-opus-4-5")
 
 # Initialize Anthropic client (using PwC GenAI service)
 client = anthropic.Anthropic(api_key=API_KEY, base_url=BASE_URL)
@@ -83,7 +84,7 @@ class handler(BaseHTTPRequestHandler):
 
             # Call Claude API for extraction
             message = client.messages.create(
-                model="claude-sonnet-4-20250514",
+                model=MODEL,
                 max_tokens=4096,
                 messages=[
                     {
