@@ -21,12 +21,10 @@ services:
       - key: STORAGE_LOCAL_PATH
         value: "/tmp/storage"
     healthCheckPath: /health
-    plan: free
 
-  # Frontend (Static Site)
-  - type: web
+  # Frontend (Static Site) - static sites are free by default
+  - type: static
     name: ctd-frontend
-    runtime: static
     rootDir: frontend
     buildCommand: npm install && npm run build
     staticPublishPath: dist
@@ -46,4 +44,3 @@ services:
           envVarKey: RENDER_EXTERNAL_URL
       - key: VITE_USE_MOCK
         value: "false"
-    plan: free
