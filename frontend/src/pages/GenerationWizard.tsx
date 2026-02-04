@@ -4,6 +4,46 @@ import type { GenerationRun, GenerationStatus } from '../types';
 import { useProject } from '../context/ProjectContext';
 import { generation, studies, lots, conditions, attributes, documents, type GenerateRequest } from '../api/client';
 
+// Helper to get document texts from localStorage
+function getDocumentTexts(): Record<string, string> {
+  try {
+    const item = localStorage.getItem('ctd_document_texts');
+    return item ? JSON.parse(item) : {};
+  } catch {
+    return {};
+  }
+}
+
+// Helper to get generated HTML from localStorage
+function getGeneratedHtml(runId: string): string | null {
+  try {
+    const item = localStorage.getItem('ctd_generated_html');
+    const data = item ? JSON.parse(item) : {};
+    return data[runId] || null;
+  } catch {
+    return null;
+  }
+}
+
+// Download HTML file
+function downloadHtml(runId: string, projectName: string) {
+  const html = getGeneratedHtml(runId);
+  if (!html) {
+    alert('HTML content not found. Please regenerate the document.');
+    return;
+  }
+
+  const blob = new Blob([html], { type: 'text/html' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${projectName.replace(/[^a-z0-9]/gi, '_')}_3.2.S.7.3_Stability_Data.html`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 type Step = 1 | 2 | 3;
 
 const STEPS = [
@@ -52,6 +92,9 @@ export default function GenerationWizard() {
         documents.list(current.id),
       ]);
 
+      // Get document texts from localStorage
+      const docTexts = getDocumentTexts();
+
       const request: GenerateRequest = {
         project: {
           id: current.id,
@@ -64,7 +107,7 @@ export default function GenerationWizard() {
         attributes: attrData.items,
         documents: docData.items.map((d) => ({
           filename: d.original_filename,
-          extracted_text: (d as any).extracted_text || '',
+          extracted_text: docTexts[d.id] || '',
           classification: d.classification,
         })),
       };
@@ -109,24 +152,22 @@ export default function GenerationWizard() {
 
           <div className="flex items-center justify-center gap-4 flex-wrap">
             {run.outputs?.html && (
-              <a
-                href={run.outputs.html}
-                target="_blank"
-                rel="noopener noreferrer"
+              <button
+                onClick={() => downloadHtml(run.outputs!.html!, current?.name || 'Document')}
                 className="inline-flex items-center gap-3 bg-primary-600 text-white px-6 py-3 rounded-lg text-sm font-medium hover:bg-primary-700 shadow-sm transition-colors"
               >
                 <Download size={18} />
                 Download HTML
-              </a>
+              </button>
             )}
             {run.outputs?.traceability_json && (
-              <a
-                href={run.outputs.traceability_json}
+              <button
+                onClick={() => alert('Traceability report generation coming soon')}
                 className="inline-flex items-center gap-2 text-sm text-gray-600 hover:text-gray-800 border border-gray-200 rounded-lg px-4 py-3 hover:bg-gray-50 transition-colors"
               >
                 <FileText size={16} />
                 Traceability
-              </a>
+              </button>
             )}
           </div>
 
@@ -163,9 +204,9 @@ export default function GenerationWizard() {
                       <span className="text-xs text-gray-400">{new Date(r.created_at).toLocaleString()}</span>
                     </div>
                     {r.outputs?.html && r.status === 'completed' && (
-                      <a href={r.outputs.html} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-xs text-primary-600 hover:text-primary-800">
+                      <button onClick={() => downloadHtml(r.outputs!.html!, current?.name || 'Document')} className="inline-flex items-center gap-1.5 text-xs text-primary-600 hover:text-primary-800">
                         <Download size={12} /> HTML
-                      </a>
+                      </button>
                     )}
                   </div>
                 );
@@ -296,9 +337,9 @@ export default function GenerationWizard() {
                     <span className="text-xs text-gray-400">{new Date(r.created_at).toLocaleString()}</span>
                   </div>
                   {r.outputs?.html && r.status === 'completed' && (
-                    <a href={r.outputs.html} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-xs text-primary-600 hover:text-primary-800 font-medium">
+                    <button onClick={() => downloadHtml(r.outputs!.html!, current?.name || 'Document')} className="inline-flex items-center gap-1.5 text-xs text-primary-600 hover:text-primary-800 font-medium">
                       <Download size={12} /> Download HTML
-                    </a>
+                    </button>
                   )}
                 </div>
               );

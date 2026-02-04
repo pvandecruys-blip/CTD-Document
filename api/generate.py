@@ -25,9 +25,8 @@ from lib.prompts import CTD_STABILITY_SYSTEM_PROMPT
 # CONFIGURATION
 # ══════════════════════════════════════════════════════════════════════════════
 
-API_KEY = os.environ.get("ANTHROPIC_API_KEY", "sk-nrYZTmnPgUu2a7uxxCZLsg")
-BASE_URL = os.environ.get("ANTHROPIC_BASE_URL", "https://genai-sharedservice-emea.pwc.com")
-MODEL = os.environ.get("ANTHROPIC_MODEL", "vertex_ai.anthropic.claude-opus-4-5")
+API_KEY = os.environ.get("ANTHROPIC_API_KEY")
+MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-20250514")
 TEMPERATURE = 0.0
 MAX_TOKENS = 16384
 
@@ -153,7 +152,7 @@ def generate(data: dict) -> dict:
     user_prompt = _serialize_input(data) + "\n\n---\nGenerate the complete HTML document."
 
     # Call AI
-    client = anthropic.Anthropic(api_key=API_KEY, base_url=BASE_URL)
+    client = anthropic.Anthropic(api_key=API_KEY)
     response = client.messages.create(
         model=MODEL,
         max_tokens=MAX_TOKENS,

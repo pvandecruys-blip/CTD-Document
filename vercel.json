@@ -1,7 +1,15 @@
 {
   "buildCommand": "cd frontend && npm install && npm run build",
   "outputDirectory": "frontend/dist",
+  "functions": {
+    "api/*.py": {
+      "runtime": "python3.11"
+    }
+  },
   "rewrites": [
+    { "source": "/api/extract", "destination": "/api/extract.py" },
+    { "source": "/api/generate", "destination": "/api/generate.py" },
+    { "source": "/api/projects", "destination": "/api/projects.py" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }

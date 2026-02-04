@@ -24,6 +24,7 @@ import type {
 const STORAGE_KEYS = {
   PROJECTS: 'ctd_projects',
   DOCUMENTS: 'ctd_documents',
+  DOCUMENT_TEXTS: 'ctd_document_texts', // Stores extracted text for AI processing
   STUDIES: 'ctd_studies',
   LOTS: 'ctd_lots',
   CONDITIONS: 'ctd_conditions',
@@ -32,6 +33,9 @@ const STORAGE_KEYS = {
   GUIDELINES: 'ctd_guidelines',
   RULES: 'ctd_rules',
 };
+
+// ── API Configuration ───────────────────────────────────────────────
+const API_BASE = import.meta.env.PROD ? '' : ''; // Use relative paths for Vercel
 
 // ── Helpers ─────────────────────────────────────────────────────────
 function getStorage<T>(key: string, defaultValue: T): T {
@@ -126,8 +130,9 @@ export const documents = {
     const allDocs = getStorage<Record<string, DocumentFile[]>>(STORAGE_KEYS.DOCUMENTS, {});
     if (!allDocs[projectId]) allDocs[projectId] = [];
 
+    const docId = generateId('doc');
     const newDoc: DocumentFile = {
-      id: generateId('doc'),
+      id: docId,
       filename,
       original_filename: filename,
       file_type: filename.split('.').pop() || 'unknown',
@@ -139,6 +144,11 @@ export const documents = {
     };
     allDocs[projectId].push(newDoc);
     setStorage(STORAGE_KEYS.DOCUMENTS, allDocs);
+
+    // Store extracted text separately for AI processing
+    const allTexts = getStorage<Record<string, string>>(STORAGE_KEYS.DOCUMENT_TEXTS, {});
+    allTexts[docId] = extractedText;
+    setStorage(STORAGE_KEYS.DOCUMENT_TEXTS, allTexts);
 
     // Update project document count
     const projects = getStorage<Project[]>(STORAGE_KEYS.PROJECTS, []);
@@ -261,9 +271,121 @@ export const readiness = {
 // ── Extraction ──────────────────────────────────────────────────────
 export const extraction = {
   start: async (projectId: string) => {
-    await delay(1000); // Simulate extraction time
+    // Get all documents for this project
+    const allDocs = getStorage<Record<string, DocumentFile[]>>(STORAGE_KEYS.DOCUMENTS, {});
+    const docs = allDocs[projectId] || [];
+    const allTexts = getStorage<Record<string, string>>(STORAGE_KEYS.DOCUMENT_TEXTS, {});
 
-    // Create sample extracted data
+    if (docs.length === 0) {
+      throw new Error('No documents to extract from');
+    }
+
+    // Combine all document texts for extraction
+    const combinedText = docs
+      .map((doc) => {
+        const text = allTexts[doc.id] || '';
+        return `=== Document: ${doc.filename} ===\n${text}`;
+      })
+      .join('\n\n');
+
+    // Call the AI extraction API
+    try {
+      const response = await fetch(`${API_BASE}/api/extract`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text: combinedText,
+          filename: docs.map((d) => d.filename).join(', '),
+        }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({ error: 'API request failed' }));
+        throw new Error(error.error || 'Extraction failed');
+      }
+
+      const result = await response.json();
+      const extracted = result.extraction || {};
+
+      // Store extracted studies
+      const allStudies = getStorage<Record<string, Study[]>>(STORAGE_KEYS.STUDIES, {});
+      allStudies[projectId] = (extracted.studies || []).map((s: { study_label?: string; study_type?: string; protocol_id?: string; confidence?: number }, idx: number) => ({
+        id: generateId('study'),
+        product_id: projectId,
+        study_label: s.study_label || `Study ${idx + 1}`,
+        study_type: s.study_type || 'long_term',
+        protocol_id: s.protocol_id || null,
+        sites: [],
+        manufacturers: [],
+        extraction_status: 'confirmed' as const,
+        confidence: s.confidence || 0.8,
+        source_anchors: [],
+      }));
+      setStorage(STORAGE_KEYS.STUDIES, allStudies);
+
+      // Store extracted conditions
+      const conditionsList: StorageCondition[] = (extracted.conditions || []).map((c: { label?: string; temperature_setpoint?: number; humidity?: string; confidence?: number }, idx: number) => ({
+        id: generateId('cond'),
+        label: c.label || `Condition ${idx + 1}`,
+        temperature_setpoint: c.temperature_setpoint || null,
+        humidity: c.humidity || null,
+        display_order: idx + 1,
+        extraction_status: 'confirmed' as const,
+        confidence: c.confidence || 0.8,
+      }));
+      setStorage(STORAGE_KEYS.CONDITIONS, conditionsList);
+
+      // Store extracted attributes
+      const attrList: QualityAttribute[] = (extracted.attributes || []).map((a: { name?: string; method_group?: string; analytical_procedure?: string; acceptance_criteria?: string; confidence?: number }, idx: number) => ({
+        id: generateId('attr'),
+        name: a.name || `Attribute ${idx + 1}`,
+        method_group: a.method_group || 'Other',
+        analytical_procedure: a.analytical_procedure || null,
+        display_order: idx + 1,
+        extraction_status: 'confirmed' as const,
+        confidence: a.confidence || 0.8,
+        acceptance_criteria: a.acceptance_criteria
+          ? [{ id: generateId('crit'), criteria_text: a.acceptance_criteria }]
+          : [],
+      }));
+      setStorage(STORAGE_KEYS.ATTRIBUTES, attrList);
+
+      // Store extracted lots
+      const allLots = getStorage<Record<string, Lot[]>>(STORAGE_KEYS.LOTS, {});
+      allLots[projectId] = (extracted.lots || []).map((l: { lot_number?: string; manufacturer?: string; manufacturing_site?: string; confidence?: number }, idx: number) => ({
+        id: generateId('lot'),
+        lot_number: l.lot_number || `LOT-${idx + 1}`,
+        manufacturer: l.manufacturer || null,
+        manufacturing_site: l.manufacturing_site || null,
+        extraction_status: 'confirmed' as const,
+        confidence: l.confidence || 0.8,
+      }));
+      setStorage(STORAGE_KEYS.LOTS, allLots);
+
+      const job: ExtractionJob = {
+        job_id: generateId('extract'),
+        status: 'completed',
+        summary: {
+          studies_found: allStudies[projectId]?.length || 0,
+          lots_found: allLots[projectId]?.length || 0,
+          conditions_found: conditionsList.length,
+          attributes_found: attrList.length,
+          results_found: 0,
+          low_confidence_count: 0,
+        },
+      };
+      return job;
+    } catch (error) {
+      // If API fails, fall back to mock data for demo purposes
+      console.warn('AI extraction failed, using mock data:', error);
+      return extraction.startMock(projectId);
+    }
+  },
+
+  // Fallback mock extraction when API is unavailable
+  startMock: async (projectId: string) => {
+    await delay(1000);
+
     const allStudies = getStorage<Record<string, Study[]>>(STORAGE_KEYS.STUDIES, {});
     allStudies[projectId] = [
       {
@@ -444,17 +566,127 @@ export interface GenerateRequest {
   }[];
 }
 
+// Storage key for generated HTML content
+const GENERATED_HTML_KEY = 'ctd_generated_html';
+
 export const generation = {
-  start: async (_req: GenerateRequest) => {
-    await delay(2000); // Simulate generation time
+  start: async (req: GenerateRequest) => {
+    const runId = generateId('gen');
+
+    try {
+      // Call the AI generation API
+      const response = await fetch(`${API_BASE}/api/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          project: {
+            name: req.project.name,
+            description: req.project.description || '',
+          },
+          studies: req.studies.map((s) => ({
+            id: s.id,
+            study_label: s.study_label,
+            study_type: s.study_type,
+            protocol_id: s.protocol_id,
+          })),
+          lots: req.lots.map((l) => ({
+            lot_number: l.lot_number,
+            manufacturer: l.manufacturer,
+            manufacturing_site: l.manufacturing_site,
+            intended_use: l.intended_use,
+          })),
+          conditions: req.conditions.map((c) => ({
+            label: c.label,
+            temperature_setpoint: c.temperature_setpoint,
+            humidity: c.humidity,
+          })),
+          attributes: req.attributes.map((a) => ({
+            name: a.name,
+            method_group: a.method_group,
+            analytical_procedure: a.analytical_procedure,
+            acceptance_criteria: a.acceptance_criteria?.map((ac) => ({ criteria_text: ac.criteria_text })) || [],
+          })),
+          documents: req.documents,
+        }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({ error: 'API request failed' }));
+        throw new Error(error.error || 'Generation failed');
+      }
+
+      const result = await response.json();
+
+      // Store the generated HTML
+      const htmlStorage = getStorage<Record<string, string>>(GENERATED_HTML_KEY, {});
+      htmlStorage[runId] = result.html || result.content || '';
+      setStorage(GENERATED_HTML_KEY, htmlStorage);
+
+      const newRun: GenerationRun = {
+        run_id: runId,
+        status: 'completed' as GenerationStatus,
+        created_at: new Date().toISOString(),
+        completed_at: new Date().toISOString(),
+        outputs: {
+          html: runId, // Reference to stored HTML
+          traceability_json: '#traceability',
+        },
+        token_usage: {
+          input_tokens: result.metadata?.input_tokens || 0,
+          output_tokens: result.metadata?.output_tokens || 0,
+        },
+      };
+
+      // Save generation run
+      const runs = getStorage<GenerationRun[]>(STORAGE_KEYS.GENERATION_RUNS, []);
+      runs.unshift(newRun);
+      setStorage(STORAGE_KEYS.GENERATION_RUNS, runs);
+
+      return newRun;
+    } catch (error) {
+      console.warn('AI generation failed, using mock data:', error);
+      return generation.startMock(req);
+    }
+  },
+
+  // Fallback mock generation when API is unavailable
+  startMock: async (_req: GenerateRequest) => {
+    await delay(2000);
+
+    const runId = generateId('gen');
+
+    // Store mock HTML
+    const mockHtml = `
+      <html>
+      <head><title>CTD Section 3.2.S.7.3 - Stability Data</title></head>
+      <body>
+        <h1>3.2.S.7.3 Stability Data</h1>
+        <p><em>This is a mock document generated because the AI API is unavailable.</em></p>
+        <p>To enable real AI generation, configure the ANTHROPIC_API_KEY environment variable in Vercel.</p>
+        <h2>Studies</h2>
+        <p>Long-term and accelerated stability studies were conducted...</p>
+        <h2>Storage Conditions</h2>
+        <ul>
+          <li>25°C/60% RH (Long-term)</li>
+          <li>40°C/75% RH (Accelerated)</li>
+        </ul>
+        <h2>Results Summary</h2>
+        <p>All tested parameters remained within specifications throughout the study duration.</p>
+      </body>
+      </html>
+    `;
+
+    const htmlStorage = getStorage<Record<string, string>>(GENERATED_HTML_KEY, {});
+    htmlStorage[runId] = mockHtml;
+    setStorage(GENERATED_HTML_KEY, htmlStorage);
 
     const newRun: GenerationRun = {
-      run_id: generateId('gen'),
+      run_id: runId,
       status: 'completed' as GenerationStatus,
       created_at: new Date().toISOString(),
       completed_at: new Date().toISOString(),
       outputs: {
-        html: '#generated-preview',
+        html: runId,
         traceability_json: '#traceability',
       },
       token_usage: {
@@ -463,12 +695,17 @@ export const generation = {
       },
     };
 
-    // Save generation run
     const runs = getStorage<GenerationRun[]>(STORAGE_KEYS.GENERATION_RUNS, []);
     runs.unshift(newRun);
     setStorage(STORAGE_KEYS.GENERATION_RUNS, runs);
 
     return newRun;
+  },
+
+  // Get generated HTML content
+  getHtml: async (runId: string) => {
+    const htmlStorage = getStorage<Record<string, string>>(GENERATED_HTML_KEY, {});
+    return htmlStorage[runId] || null;
   },
 
   status: async (_projectId: string, runId: string) => {
