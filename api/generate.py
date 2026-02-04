@@ -246,7 +246,7 @@ API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 BASE_URL = os.environ.get("ANTHROPIC_BASE_URL", "https://genai-sharedservice-emea.pwc.com")
 MODEL = os.environ.get("ANTHROPIC_MODEL", "vertex_ai.anthropic.claude-opus-4-5")
 TEMPERATURE = 0.0
-MAX_TOKENS = 16384
+MAX_TOKENS = 32768  # Increased to allow for larger documents with more tables
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -333,14 +333,14 @@ def _serialize_input(data: dict) -> str:
     else:
         parts.append("# ATTRIBUTES\n(none)")
 
-    # Documents
+    # Documents - allow more text to capture stability data tables
     if documents:
         doc_parts = []
         for d in documents:
             text = d.get("extracted_text", "").strip()
             if text:
-                if len(text) > 10000:
-                    text = text[:10000] + "\n[truncated]"
+                if len(text) > 50000:
+                    text = text[:50000] + "\n[truncated]"
                 doc_parts.append(f"── {d.get('filename', 'unknown')} [{d.get('classification', 'unknown')}] ──\n{text}")
         parts.append("# SOURCE DOCUMENTS\n" + ("\n\n".join(doc_parts) if doc_parts else "(no text extracted)"))
     else:

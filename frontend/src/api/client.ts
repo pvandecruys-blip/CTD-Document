@@ -107,6 +107,15 @@ export const projects = {
 
     // Delete all related data for this project
     const docs = getStorage<Record<string, DocumentFile[]>>(STORAGE_KEYS.DOCUMENTS, {});
+    const projectDocs = docs[id] || [];
+
+    // Delete document texts for all documents in this project
+    const allTexts = getStorage<Record<string, string>>(STORAGE_KEYS.DOCUMENT_TEXTS, {});
+    projectDocs.forEach((doc) => {
+      delete allTexts[doc.id];
+    });
+    setStorage(STORAGE_KEYS.DOCUMENT_TEXTS, allTexts);
+
     delete docs[id];
     setStorage(STORAGE_KEYS.DOCUMENTS, docs);
 
@@ -206,6 +215,11 @@ export const documents = {
     if (allDocs[projectId]) {
       allDocs[projectId] = allDocs[projectId].filter((d) => d.id !== docId);
       setStorage(STORAGE_KEYS.DOCUMENTS, allDocs);
+
+      // Delete the document's extracted text
+      const allTexts = getStorage<Record<string, string>>(STORAGE_KEYS.DOCUMENT_TEXTS, {});
+      delete allTexts[docId];
+      setStorage(STORAGE_KEYS.DOCUMENT_TEXTS, allTexts);
 
       // Update project document count
       const projects = getStorage<Project[]>(STORAGE_KEYS.PROJECTS, []);
