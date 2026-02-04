@@ -644,7 +644,10 @@ export const generation = {
 
       return newRun;
     } catch (error) {
-      console.warn('AI generation failed, using mock data:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      console.error('AI generation failed:', errorMessage);
+      // Show alert so user knows what happened
+      alert(`AI generation failed: ${errorMessage}\n\nFalling back to mock data. Check Vercel logs for details.`);
       return generation.startMock(req);
     }
   },
