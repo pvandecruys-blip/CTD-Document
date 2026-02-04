@@ -50,17 +50,16 @@ export default function Documents() {
 
   useEffect(() => { load(); }, [load]);
 
-  // Extract text from various file types
+  // Extract text from various file types with table structure preservation
   const extractTextFromFile = async (file: File): Promise<string> => {
     const ext = file.name.slice(file.name.lastIndexOf('.')).toLowerCase();
     console.log(`Extracting text from ${file.name} (${ext}, ${file.size} bytes)`);
 
     try {
-      // PDF extraction using PDF.js
+      // PDF extraction using PDF.js with table structure preservation
       if (ext === '.pdf') {
-        console.log('Starting PDF extraction...');
+        console.log('Starting PDF extraction with table detection...');
         const arrayBuffer = await file.arrayBuffer();
-        console.log(`PDF arrayBuffer size: ${arrayBuffer.byteLength}`);
 
         const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
         const pdf = await loadingTask.promise;
@@ -71,13 +70,71 @@ export default function Documents() {
         for (let i = 1; i <= pdf.numPages; i++) {
           const page = await pdf.getPage(i);
           const content = await page.getTextContent();
-          const pageText = content.items
-            .map((item) => ('str' in item ? (item as { str: string }).str : ''))
-            .join(' ');
-          textParts.push(pageText);
+
+          // Extract items with position data
+          type TextItem = { str: string; transform: number[] };
+          const items = content.items
+            .filter((item): item is TextItem => 'str' in item && 'transform' in item)
+            .map((item) => ({
+              text: item.str,
+              x: Math.round(item.transform[4]), // X position
+              y: Math.round(item.transform[5]), // Y position
+            }))
+            .filter((item) => item.text.trim()); // Remove empty items
+
+          if (items.length === 0) {
+            textParts.push('');
+            continue;
+          }
+
+          // Group items by Y position (rows) - items within 3px are same row
+          const rows: Map<number, typeof items> = new Map();
+          for (const item of items) {
+            let foundRow = false;
+            for (const [rowY] of rows) {
+              if (Math.abs(item.y - rowY) < 3) {
+                rows.get(rowY)!.push(item);
+                foundRow = true;
+                break;
+              }
+            }
+            if (!foundRow) {
+              rows.set(item.y, [item]);
+            }
+          }
+
+          // Sort rows by Y (top to bottom = higher Y first in PDF coordinates)
+          const sortedRows = Array.from(rows.entries())
+            .sort((a, b) => b[0] - a[0]);
+
+          // Build text with proper spacing
+          const pageLines: string[] = [];
+          for (const [, rowItems] of sortedRows) {
+            // Sort items in row by X position (left to right)
+            rowItems.sort((a, b) => a.x - b.x);
+
+            // Join with tabs if there's significant horizontal gap (likely table columns)
+            let lineText = '';
+            let lastX = -1000;
+            for (const item of rowItems) {
+              const gap = item.x - lastX;
+              if (lastX >= 0 && gap > 30) {
+                // Large gap = likely table column separator
+                lineText += '\t';
+              } else if (lastX >= 0 && gap > 5) {
+                // Small gap = space
+                lineText += ' ';
+              }
+              lineText += item.text;
+              lastX = item.x + (item.text.length * 5); // Approximate end position
+            }
+            pageLines.push(lineText);
+          }
+
+          textParts.push(pageLines.join('\n'));
         }
 
-        const fullText = textParts.join('\n\n');
+        const fullText = textParts.join('\n\n--- PAGE BREAK ---\n\n');
         console.log(`PDF extraction complete: ${fullText.length} characters`);
         return fullText || `[PDF ${file.name} contains no extractable text - may be scanned/image-based]`;
       }
