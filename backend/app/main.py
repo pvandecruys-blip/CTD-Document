@@ -22,7 +22,10 @@ app.add_middleware(
         "http://localhost:3001",
         "http://localhost:3002",
         "https://ctd-document-hkad.vercel.app",
+        "https://*.onrender.com",  # Render deployments
+        "https://*.vercel.app",    # Vercel deployments
     ],
+    allow_origin_regex=r"https://.*\.(onrender\.com|vercel\.app)$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
