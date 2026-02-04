@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Plus,
@@ -9,56 +9,11 @@ import {
   Shield,
   Trash2,
   ChevronRight,
+  Loader2,
 } from 'lucide-react';
-
-interface Project {
-  id: string;
-  name: string;
-  compound: string;
-  description: string;
-  createdAt: string;
-  updatedAt: string;
-  sectionsComplete: number;
-  totalSections: number;
-  status: 'draft' | 'in_progress' | 'complete';
-}
-
-// Mock projects for demo
-const MOCK_PROJECTS: Project[] = [
-  {
-    id: 'proj-1',
-    name: 'Amlodipine Besylate 5mg Tablets',
-    compound: 'Amlodipine Besylate',
-    description: 'Generic amlodipine tablets for hypertension treatment',
-    createdAt: '2024-01-15',
-    updatedAt: '2024-02-01',
-    sectionsComplete: 8,
-    totalSections: 15,
-    status: 'in_progress',
-  },
-  {
-    id: 'proj-2',
-    name: 'Metformin HCl 500mg Extended Release',
-    compound: 'Metformin Hydrochloride',
-    description: 'Extended release tablets for type 2 diabetes',
-    createdAt: '2024-01-20',
-    updatedAt: '2024-01-28',
-    sectionsComplete: 3,
-    totalSections: 15,
-    status: 'draft',
-  },
-  {
-    id: 'proj-3',
-    name: 'Omeprazole 20mg Capsules',
-    compound: 'Omeprazole',
-    description: 'Delayed release capsules for GERD treatment',
-    createdAt: '2023-12-01',
-    updatedAt: '2024-01-10',
-    sectionsComplete: 15,
-    totalSections: 15,
-    status: 'complete',
-  },
-];
+import { useProject } from '../context/ProjectContext';
+import { projects as projectsApi } from '../api/client';
+import type { Project } from '../types';
 
 const STATUS_CONFIG = {
   draft: {
@@ -79,9 +34,8 @@ const STATUS_CONFIG = {
 };
 
 function ProjectCard({ project, onClick, onDelete }: { project: Project; onClick: () => void; onDelete: () => void }) {
-  const status = STATUS_CONFIG[project.status];
+  const status = STATUS_CONFIG[project.status as keyof typeof STATUS_CONFIG] || STATUS_CONFIG.draft;
   const StatusIcon = status.icon;
-  const progress = Math.round((project.sectionsComplete / project.totalSections) * 100);
 
   return (
     <div
@@ -97,7 +51,7 @@ function ProjectCard({ project, onClick, onDelete }: { project: Project; onClick
             <h3 className="font-semibold text-gray-900 group-hover:text-primary-600 transition-colors">
               {project.name}
             </h3>
-            <p className="text-xs text-gray-500">{project.compound}</p>
+            <p className="text-xs text-gray-500">{project.description || 'CTD Project'}</p>
           </div>
         </div>
         <button
@@ -111,19 +65,15 @@ function ProjectCard({ project, onClick, onDelete }: { project: Project; onClick
         </button>
       </div>
 
-      <p className="text-sm text-gray-600 mb-4 line-clamp-2">{project.description}</p>
+      <p className="text-sm text-gray-600 mb-4 line-clamp-2">
+        {project.description || 'No description provided'}
+      </p>
 
-      {/* Progress */}
+      {/* Document count */}
       <div className="mb-4">
         <div className="flex items-center justify-between text-xs mb-1">
-          <span className="text-gray-500">Section Progress</span>
-          <span className="font-medium text-gray-700">{project.sectionsComplete}/{project.totalSections}</span>
-        </div>
-        <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-          <div
-            className="h-full bg-primary-500 rounded-full transition-all"
-            style={{ width: `${progress}%` }}
-          />
+          <span className="text-gray-500">Documents</span>
+          <span className="font-medium text-gray-700">{project.document_count || 0}</span>
         </div>
       </div>
 
@@ -134,7 +84,7 @@ function ProjectCard({ project, onClick, onDelete }: { project: Project; onClick
           {status.label}
         </span>
         <span className="text-xs text-gray-400">
-          Updated {project.updatedAt}
+          {new Date(project.updated_at).toLocaleDateString()}
         </span>
       </div>
 
@@ -151,22 +101,21 @@ function ProjectCard({ project, onClick, onDelete }: { project: Project; onClick
 interface NewProjectModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onCreate: (project: Omit<Project, 'id' | 'createdAt' | 'updatedAt' | 'sectionsComplete' | 'totalSections' | 'status'>) => void;
+  onCreate: (name: string, description: string) => Promise<void>;
+  isCreating: boolean;
 }
 
-function NewProjectModal({ isOpen, onClose, onCreate }: NewProjectModalProps) {
+function NewProjectModal({ isOpen, onClose, onCreate, isCreating }: NewProjectModalProps) {
   const [name, setName] = useState('');
-  const [compound, setCompound] = useState('');
   const [description, setDescription] = useState('');
 
   if (!isOpen) return null;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (name && compound) {
-      onCreate({ name, compound, description });
+    if (name) {
+      await onCreate(name, description);
       setName('');
-      setCompound('');
       setDescription('');
       onClose();
     }
@@ -186,17 +135,7 @@ function NewProjectModal({ isOpen, onClose, onCreate }: NewProjectModalProps) {
               placeholder="e.g., Amlodipine Besylate 5mg Tablets"
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
               required
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Compound/API Name *</label>
-            <input
-              type="text"
-              value={compound}
-              onChange={(e) => setCompound(e.target.value)}
-              placeholder="e.g., Amlodipine Besylate"
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-              required
+              disabled={isCreating}
             />
           </div>
           <div>
@@ -207,6 +146,7 @@ function NewProjectModal({ isOpen, onClose, onCreate }: NewProjectModalProps) {
               placeholder="Brief description of the product..."
               rows={3}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+              disabled={isCreating}
             />
           </div>
           <div className="flex gap-3 pt-2">
@@ -214,14 +154,23 @@ function NewProjectModal({ isOpen, onClose, onCreate }: NewProjectModalProps) {
               type="button"
               onClick={onClose}
               className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
+              disabled={isCreating}
             >
               Cancel
             </button>
             <button
               type="submit"
-              className="flex-1 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
+              className="flex-1 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50 flex items-center justify-center gap-2"
+              disabled={isCreating}
             >
-              Create Project
+              {isCreating ? (
+                <>
+                  <Loader2 size={16} className="animate-spin" />
+                  Creating...
+                </>
+              ) : (
+                'Create Project'
+              )}
             </button>
           </div>
         </form>
@@ -232,26 +181,44 @@ function NewProjectModal({ isOpen, onClose, onCreate }: NewProjectModalProps) {
 
 export default function Home() {
   const navigate = useNavigate();
-  const [projects, setProjects] = useState<Project[]>(MOCK_PROJECTS);
+  const { list, loading, reload, select } = useProject();
   const [showNewModal, setShowNewModal] = useState(false);
+  const [isCreating, setIsCreating] = useState(false);
 
-  const handleCreateProject = (data: Omit<Project, 'id' | 'createdAt' | 'updatedAt' | 'sectionsComplete' | 'totalSections' | 'status'>) => {
-    const newProject: Project = {
-      ...data,
-      id: `proj-${Date.now()}`,
-      createdAt: new Date().toISOString().split('T')[0],
-      updatedAt: new Date().toISOString().split('T')[0],
-      sectionsComplete: 0,
-      totalSections: 15,
-      status: 'draft',
-    };
-    setProjects([newProject, ...projects]);
+  // Load projects on mount
+  useEffect(() => {
+    reload();
+  }, []);
+
+  const handleCreateProject = async (name: string, description: string) => {
+    setIsCreating(true);
+    try {
+      const newProject = await projectsApi.create({ name, description });
+      await reload();
+      // Navigate to the new project
+      select(newProject);
+      navigate(`/project/${newProject.id}`);
+    } catch (error) {
+      console.error('Failed to create project:', error);
+    } finally {
+      setIsCreating(false);
+    }
   };
 
-  const handleDeleteProject = (id: string) => {
-    if (confirm('Are you sure you want to delete this project?')) {
-      setProjects(projects.filter((p) => p.id !== id));
+  const handleDeleteProject = async (id: string) => {
+    if (confirm('Are you sure you want to delete this project? This will also delete all associated documents.')) {
+      try {
+        await projectsApi.delete(id);
+        await reload();
+      } catch (error) {
+        console.error('Failed to delete project:', error);
+      }
     }
+  };
+
+  const handleOpenProject = (project: Project) => {
+    select(project);
+    navigate(`/project/${project.id}`);
   };
 
   return (
@@ -305,19 +272,26 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Projects Grid */}
-        {projects.length > 0 ? (
+        {/* Loading State */}
+        {loading ? (
+          <div className="text-center py-16">
+            <Loader2 size={32} className="mx-auto text-primary-500 animate-spin mb-4" />
+            <p className="text-gray-500">Loading projects...</p>
+          </div>
+        ) : list.length > 0 ? (
+          /* Projects Grid */
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {projects.map((project) => (
+            {list.map((project) => (
               <ProjectCard
                 key={project.id}
                 project={project}
-                onClick={() => navigate(`/project/${project.id}`)}
+                onClick={() => handleOpenProject(project)}
                 onDelete={() => handleDeleteProject(project.id)}
               />
             ))}
           </div>
         ) : (
+          /* Empty State */
           <div className="text-center py-16">
             <FolderOpen size={48} className="mx-auto text-gray-300 mb-4" />
             <h3 className="text-lg font-medium text-gray-900 mb-2">No projects yet</h3>
@@ -343,6 +317,7 @@ export default function Home() {
         isOpen={showNewModal}
         onClose={() => setShowNewModal(false)}
         onCreate={handleCreateProject}
+        isCreating={isCreating}
       />
     </div>
   );
