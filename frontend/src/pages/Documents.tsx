@@ -125,29 +125,7 @@ export default function Documents() {
       setUploadQueue((q) => q.map((item, idx) => idx === i ? { ...item, status: 'uploading' } : item));
       try {
         const text = await extractTextFromFile(fileArr[i]);
-
-        // Auto-classify document using AI
-        let classification = 'other_supporting';
-        if (text && text.length > 100 && !text.startsWith('[')) {
-          try {
-            const response = await fetch('/api/extract', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ text: text.slice(0, 10000), filename: fileArr[i].name }),
-            });
-            if (response.ok) {
-              const result = await response.json();
-              if (result.extraction?.document_classification) {
-                classification = result.extraction.document_classification;
-                console.log(`Auto-classified ${fileArr[i].name} as: ${classification}`);
-              }
-            }
-          } catch (classifyError) {
-            console.warn('Auto-classification failed, using default:', classifyError);
-          }
-        }
-
-        await documents.upload(pid, fileArr[i].name, text, classification);
+        await documents.upload(pid, fileArr[i].name, text);
         setUploadQueue((q) => q.map((item, idx) => idx === i ? { ...item, status: 'done' } : item));
       } catch {
         setUploadQueue((q) => q.map((item, idx) => idx === i ? { ...item, status: 'error' } : item));
