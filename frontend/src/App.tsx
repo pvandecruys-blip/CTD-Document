@@ -3,7 +3,6 @@ import { Routes, Route, NavLink, Navigate, useNavigate, useParams } from 'react-
 import {
   LayoutDashboard,
   Upload,
-  TableProperties,
   Wand2,
   ShieldCheck,
   BookOpen,
@@ -25,19 +24,16 @@ import Home from './pages/Home';
 import ProjectDashboard from './pages/ProjectDashboard';
 import Dashboard from './pages/Dashboard';
 import Documents from './pages/Documents';
-import ExtractionReview from './pages/ExtractionReview';
 import GenerationWizard from './pages/GenerationWizard';
 import ValidationReport from './pages/ValidationReport';
 import RegulatoryLibrary from './pages/RegulatoryLibrary';
 import PreviewDocuments from './pages/PreviewDocuments';
-import PreviewExtraction from './pages/PreviewExtraction';
 import PreviewGenerate from './pages/PreviewGenerate';
 import PreviewValidation from './pages/PreviewValidation';
 
 const STABILITY_NAV_ITEMS = [
   { to: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { to: 'documents', label: 'Documents', icon: Upload },
-  { to: 'extraction', label: 'Extraction Review', icon: TableProperties },
   { to: 'generate', label: 'Generate & Download', icon: Wand2 },
   { to: 'validation', label: 'Validation', icon: ShieldCheck },
   { to: 'regulatory', label: 'Regulatory Library', icon: BookOpen },
@@ -45,7 +41,6 @@ const STABILITY_NAV_ITEMS = [
 
 const PREVIEW_NAV_ITEMS = [
   { to: 'documents', label: 'Documents', icon: Upload },
-  { to: 'extraction', label: 'Extraction Review', icon: TableProperties },
   { to: 'generate', label: 'Generate & Download', icon: Wand2 },
   { to: 'validation', label: 'Validation', icon: ShieldCheck },
 ];
@@ -185,7 +180,6 @@ function StabilityShell({ config, projectId }: { config: StabilityConfig; projec
           <Route path="/" element={<Navigate to={`${basePath}/dashboard`} replace />} />
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/documents" element={<Documents />} />
-          <Route path="/extraction" element={<ExtractionReview />} />
           <Route path="/generate" element={<GenerationWizard />} />
           <Route path="/validation" element={<ValidationReport />} />
           <Route path="/regulatory" element={<RegulatoryLibrary />} />
@@ -280,7 +274,6 @@ function SectionShell({ config, projectId }: { config: SectionConfig; projectId:
         <Routes>
           <Route path="/" element={<Navigate to={`${basePath}/documents`} replace />} />
           <Route path="/documents" element={<PreviewDocuments />} />
-          <Route path="/extraction" element={<PreviewExtraction />} />
           <Route path="/generate" element={<PreviewGenerate />} />
           <Route path="/validation" element={<PreviewValidation />} />
         </Routes>
