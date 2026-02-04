@@ -355,7 +355,7 @@ def _serialize_input(data: dict) -> str:
 
 def generate(data: dict) -> dict:
     """
-    Generate CTD stability document.
+    Generate CTD stability document using streaming to avoid timeouts.
 
     Args:
         data: Structured input with project, studies, lots, conditions, attributes, documents
@@ -369,18 +369,31 @@ def generate(data: dict) -> dict:
     # Serialize input
     user_prompt = _serialize_input(data) + "\n\n---\nGenerate the complete HTML document."
 
-    # Call AI (using PwC GenAI service)
+    # Call AI with streaming (required for long-running operations >10 min)
     client = anthropic.Anthropic(api_key=API_KEY, base_url=BASE_URL)
-    response = client.messages.create(
+
+    # Use streaming to avoid timeout
+    html_parts = []
+    input_tokens = 0
+    output_tokens = 0
+
+    with client.messages.stream(
         model=MODEL,
         max_tokens=MAX_TOKENS,
         temperature=TEMPERATURE,
         system=CTD_STABILITY_SYSTEM_PROMPT,
         messages=[{"role": "user", "content": user_prompt}],
-    )
+    ) as stream:
+        for text in stream.text_stream:
+            html_parts.append(text)
+
+        # Get final message for token counts
+        final_message = stream.get_final_message()
+        input_tokens = final_message.usage.input_tokens
+        output_tokens = final_message.usage.output_tokens
 
     # Extract HTML
-    html = response.content[0].text.strip()
+    html = "".join(html_parts).strip()
     if html.startswith("```"):
         html = re.sub(r"^```(?:html)?\s*\n?", "", html)
         html = re.sub(r"\n?```\s*$", "", html)
@@ -393,8 +406,8 @@ def generate(data: dict) -> dict:
         "html": html,
         "metadata": {
             "model": MODEL,
-            "input_tokens": response.usage.input_tokens,
-            "output_tokens": response.usage.output_tokens,
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
             "started_at": started_at.isoformat(),
             "completed_at": completed_at.isoformat(),
         },
