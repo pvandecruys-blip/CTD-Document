@@ -243,6 +243,7 @@ The same input data must always produce byte-identical HTML output.
 # ══════════════════════════════════════════════════════════════════════════════
 
 API_KEY = os.environ.get("ANTHROPIC_API_KEY")
+BASE_URL = os.environ.get("ANTHROPIC_BASE_URL", "https://genai-sharedservice-emea.pwc.com")
 MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-20250514")
 TEMPERATURE = 0.0
 MAX_TOKENS = 16384
@@ -368,8 +369,8 @@ def generate(data: dict) -> dict:
     # Serialize input
     user_prompt = _serialize_input(data) + "\n\n---\nGenerate the complete HTML document."
 
-    # Call AI
-    client = anthropic.Anthropic(api_key=API_KEY)
+    # Call AI (using PwC GenAI service)
+    client = anthropic.Anthropic(api_key=API_KEY, base_url=BASE_URL)
     response = client.messages.create(
         model=MODEL,
         max_tokens=MAX_TOKENS,

@@ -8,8 +8,12 @@ import json
 from http.server import BaseHTTPRequestHandler
 import anthropic
 
-# Initialize Anthropic client
-client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+# Configuration
+API_KEY = os.environ.get("ANTHROPIC_API_KEY")
+BASE_URL = os.environ.get("ANTHROPIC_BASE_URL", "https://genai-sharedservice-emea.pwc.com")
+
+# Initialize Anthropic client (using PwC GenAI service)
+client = anthropic.Anthropic(api_key=API_KEY, base_url=BASE_URL)
 
 EXTRACTION_PROMPT = """You are a regulatory affairs expert specialized in ICH CTD Module 3 Quality documentation, specifically stability data sections (3.2.S.7 and 3.2.P.8).
 
