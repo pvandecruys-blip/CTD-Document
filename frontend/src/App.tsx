@@ -1,7 +1,6 @@
 import { useEffect } from 'react';
 import { Routes, Route, NavLink, Navigate, useNavigate, useParams } from 'react-router-dom';
 import {
-  LayoutDashboard,
   Upload,
   Wand2,
   ShieldCheck,
@@ -22,7 +21,6 @@ import {
 import { ProjectProvider, useProject } from './context/ProjectContext';
 import Home from './pages/Home';
 import ProjectDashboard from './pages/ProjectDashboard';
-import Dashboard from './pages/Dashboard';
 import Documents from './pages/Documents';
 import GenerationWizard from './pages/GenerationWizard';
 import ValidationReport from './pages/ValidationReport';
@@ -32,7 +30,6 @@ import PreviewGenerate from './pages/PreviewGenerate';
 import PreviewValidation from './pages/PreviewValidation';
 
 const STABILITY_NAV_ITEMS = [
-  { to: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { to: 'documents', label: 'Documents', icon: Upload },
   { to: 'generate', label: 'Generate & Download', icon: Wand2 },
   { to: 'validation', label: 'Validation', icon: ShieldCheck },
@@ -177,8 +174,7 @@ function StabilityShell({ config, projectId }: { config: StabilityConfig; projec
       {/* Main content */}
       <main className="flex-1 overflow-y-auto bg-gray-50">
         <Routes>
-          <Route path="/" element={<Navigate to={`${basePath}/dashboard`} replace />} />
-          <Route path="/dashboard" element={<Dashboard />} />
+          <Route path="/" element={<Navigate to={`${basePath}/documents`} replace />} />
           <Route path="/documents" element={<Documents />} />
           <Route path="/generate" element={<GenerationWizard />} />
           <Route path="/validation" element={<ValidationReport />} />
