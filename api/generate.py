@@ -197,15 +197,40 @@ Map internal codes to display labels:
 - stress → "Stress"
 - photostability → "Photostability"
 
-# DATA EXTRACTION RULES
+# DATA EXTRACTION RULES - CRITICAL
 
-When source documents are provided:
-1. Extract actual batch numbers, not placeholders
-2. Extract actual test results with units
-3. Extract actual acceptance criteria text
-4. Identify storage conditions from document context
-5. Match timepoints to column headers
-6. If a value appears as "Conforms" or "Meets", include the actual numeric value if available
+**YOU MUST EXTRACT ALL DATA FROM SOURCE DOCUMENTS.** The source documents contain the actual stability data in table format. Your primary job is to find and use this data.
+
+## Source Document Format
+The source documents contain tab-separated table data. Lines with tabs represent table rows where:
+- Tab characters (\t) separate columns
+- Each row contains test results at different timepoints
+- Look for patterns like: "Test Name\tCriteria\tInitial\t3M\t6M\t12M"
+
+## Extraction Requirements
+1. **SCAN ALL SOURCE DOCUMENTS THOROUGHLY** - Read every line looking for stability data
+2. **Extract actual batch numbers** - Look for "Batch", "Lot", "Batch No", "Lot No" followed by numbers
+3. **Extract ALL test results** - Find numeric values like "99.5%", "0.05%", "<0.1%", "Complies", "White powder"
+4. **Extract acceptance criteria** - Look for specifications like "98.0-102.0%", "NMT 0.5%", "White to off-white"
+5. **Identify storage conditions** - Look for "25°C/60%RH", "40°C/75%RH", temperature and humidity values
+6. **Match timepoints** - Find columns for Initial, 0, 1M, 3M, 6M, 9M, 12M, 18M, 24M, 36M months
+7. **Extract manufacturer info** - Look for company names, site locations
+8. **Find manufacturing dates** - Look for dates in various formats
+
+## Common Test Items to Look For
+- Appearance, Description
+- Assay, Potency, Content
+- Related substances, Impurities, Degradation products
+- Water content, Loss on drying, Moisture
+- Residual solvents
+- Particle size, Polymorphic form
+- pH, Dissolution
+- Microbial limits, Sterility
+
+## NEVER Leave Tables Empty
+If source documents contain stability data, your output tables MUST contain that data.
+Do NOT output empty cells or "—" if the data exists in the source documents.
+Only use "—" when data is genuinely not available in any source document.
 
 # QUALITY CHECKLIST (Self-Verify Before Output)
 
