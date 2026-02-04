@@ -1,4 +1,6 @@
+import { useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { useProject } from '../context/ProjectContext';
 import {
   ArrowLeft,
   Shield,
@@ -140,20 +142,28 @@ function SectionCard({ section, onClick }: { section: CTDSection; onClick: () =>
   );
 }
 
-// Mock project data lookup
-const getProjectById = (id: string) => {
-  const projects: Record<string, { name: string; compound: string }> = {
-    'proj-1': { name: 'Amlodipine Besylate 5mg Tablets', compound: 'Amlodipine Besylate' },
-    'proj-2': { name: 'Metformin HCl 500mg Extended Release', compound: 'Metformin Hydrochloride' },
-    'proj-3': { name: 'Omeprazole 20mg Capsules', compound: 'Omeprazole' },
-  };
-  return projects[id] || { name: 'Unknown Project', compound: 'Unknown' };
-};
-
 export default function ProjectDashboard() {
   const navigate = useNavigate();
   const { projectId } = useParams<{ projectId: string }>();
-  const project = getProjectById(projectId || '');
+  const { current, selectById, loading } = useProject();
+
+  // Sync project from URL
+  useEffect(() => {
+    if (projectId) {
+      selectById(projectId);
+    }
+  }, [projectId, selectById]);
+
+  // Show loading state
+  if (loading || !current) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 flex items-center justify-center">
+        <div className="text-gray-500">Loading project...</div>
+      </div>
+    );
+  }
+
+  const project = { name: current.name, compound: current.description || 'CTD Project' };
 
   const drugSubstanceSections = DRUG_SUBSTANCE_SECTIONS(projectId || '');
   const drugProductSections = DRUG_PRODUCT_SECTIONS(projectId || '');

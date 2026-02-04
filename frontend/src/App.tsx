@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { Routes, Route, NavLink, Navigate, useNavigate, useParams } from 'react-router-dom';
 import {
   LayoutDashboard,
@@ -19,7 +20,7 @@ import {
   Package,
 } from 'lucide-react';
 
-import { ProjectProvider } from './context/ProjectContext';
+import { ProjectProvider, useProject } from './context/ProjectContext';
 import Home from './pages/Home';
 import ProjectDashboard from './pages/ProjectDashboard';
 import Dashboard from './pages/Dashboard';
@@ -110,8 +111,14 @@ const SECTION_CONFIGS: Record<string, SectionConfig> = {
 // Stability Shell - for fully functional S.7 and P.8 sections
 function StabilityShell({ config, projectId }: { config: StabilityConfig; projectId: string }) {
   const navigate = useNavigate();
+  const { selectById } = useProject();
   const Icon = config.icon;
   const basePath = `/project/${projectId}/stability/${config.type}`;
+
+  // Sync project from URL
+  useEffect(() => {
+    selectById(projectId);
+  }, [projectId, selectById]);
 
   return (
     <div className="flex h-screen">
@@ -204,9 +211,15 @@ function ProjectStabilityRouter() {
 // Section Shell - for preview sections
 function SectionShell({ config, projectId }: { config: SectionConfig; projectId: string }) {
   const navigate = useNavigate();
+  const { selectById } = useProject();
   const Icon = config.icon;
   const basePath = `/project/${projectId}/section/${config.id}`;
   const isDrugSubstance = config.id.startsWith('s');
+
+  // Sync project from URL
+  useEffect(() => {
+    selectById(projectId);
+  }, [projectId, selectById]);
 
   return (
     <div className="flex h-screen">

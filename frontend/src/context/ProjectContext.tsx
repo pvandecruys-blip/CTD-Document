@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import type { Project } from '../types';
 import { projects } from '../api/client';
 
@@ -7,6 +7,7 @@ interface ProjectCtx {
   list: Project[];
   loading: boolean;
   select: (p: Project) => void;
+  selectById: (id: string) => Promise<void>;
   reload: () => Promise<void>;
 }
 
@@ -15,6 +16,7 @@ const Ctx = createContext<ProjectCtx>({
   list: [],
   loading: true,
   select: () => {},
+  selectById: async () => {},
   reload: async () => {},
 });
 
@@ -23,30 +25,48 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
   const [current, setCurrent] = useState<Project | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const reload = async () => {
+  const reload = useCallback(async () => {
     setLoading(true);
     try {
       const data = await projects.list();
       setList(data.items);
-      // auto-select first if nothing selected or selected was deleted
-      if (data.items.length > 0) {
-        if (!current || !data.items.find((p) => p.id === current.id)) {
-          setCurrent(data.items[0]);
+      // Update current if it exists in the new list
+      if (current) {
+        const updated = data.items.find((p) => p.id === current.id);
+        if (updated) {
+          setCurrent(updated);
         }
-      } else {
-        setCurrent(null);
       }
     } catch {
-      /* backend offline */
+      /* storage error */
     } finally {
       setLoading(false);
     }
-  };
+  }, [current]);
+
+  const selectById = useCallback(async (id: string) => {
+    // First check if it's in the list
+    const existing = list.find((p) => p.id === id);
+    if (existing) {
+      setCurrent(existing);
+      return;
+    }
+    // Otherwise try to load it
+    try {
+      const project = await projects.get(id);
+      setCurrent(project);
+      // Reload list to make sure it's in sync
+      const data = await projects.list();
+      setList(data.items);
+    } catch {
+      // Project not found
+    }
+  }, [list]);
 
   useEffect(() => { reload(); }, []);
 
   return (
-    <Ctx.Provider value={{ current, list, loading, select: setCurrent, reload }}>
+    <Ctx.Provider value={{ current, list, loading, select: setCurrent, selectById, reload }}>
       {children}
     </Ctx.Provider>
   );
