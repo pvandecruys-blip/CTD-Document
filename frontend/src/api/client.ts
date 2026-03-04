@@ -18,6 +18,8 @@ import type {
   AllocationStatus,
   ExtractionJob,
   ValidationReport,
+  VeevaDocument,
+  VeevaNotification,
 } from '../types';
 
 // ── Storage Keys ────────────────────────────────────────────────────
@@ -598,6 +600,7 @@ export const validation = {
 
 // ── Generation ──────────────────────────────────────────────────────
 export interface GenerateRequest {
+  section?: string; // CTD section ID e.g. "S.7.3", "S.2.5"
   project: {
     id: string;
     name: string;
@@ -627,6 +630,7 @@ export const generation = {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          section: req.section || 'S.7.3',
           project: {
             name: req.project.name,
             description: req.project.description || '',
@@ -673,6 +677,7 @@ export const generation = {
       const newRun: GenerationRun & { project_id: string } = {
         run_id: runId,
         project_id: req.project.id,
+        section_id: req.section || 'S.7.3',
         status: 'completed' as GenerationStatus,
         created_at: new Date().toISOString(),
         completed_at: new Date().toISOString(),
@@ -735,6 +740,7 @@ export const generation = {
     const newRun: GenerationRun & { project_id: string } = {
       run_id: runId,
       project_id: req.project.id,
+      section_id: req.section || 'S.7.3',
       status: 'completed' as GenerationStatus,
       created_at: new Date().toISOString(),
       completed_at: new Date().toISOString(),
@@ -931,5 +937,205 @@ export const regulatory = {
     remove: async (_projectId: string, _ruleIdCode: string) => {
       await delay();
     },
+  },
+};
+
+// ── Veeva Vault (Mock) ─────────────────────────────────────────────
+const VEEVA_VAULT_KEY = 'ctd_veeva_vault';
+const VEEVA_NOTIFICATIONS_KEY = 'ctd_veeva_notifications';
+
+function seedVeevaVault(projectId: string): VeevaDocument[] {
+  const docs: VeevaDocument[] = [
+    {
+      id: generateId('veeva'),
+      vault_name: 'Stability Report — Drug Substance Lot A',
+      document_number: 'DOC-2024-001',
+      current_version: '3.2',
+      synced_version: '3.0',
+      status: 'update_available',
+      last_modified: '2025-12-15T10:30:00Z',
+      classification: 'stability_report',
+      version_history: [
+        { version: '3.2', date: '2025-12-15', change_note: 'Added 36-month data' },
+        { version: '3.0', date: '2025-06-01', change_note: 'Added 24-month data' },
+        { version: '2.0', date: '2024-12-01', change_note: 'Added 12-month data' },
+      ],
+    },
+    {
+      id: generateId('veeva'),
+      vault_name: 'Stability Report — Drug Substance Lot B',
+      document_number: 'DOC-2024-002',
+      current_version: '2.1',
+      synced_version: '2.1',
+      status: 'steady_state',
+      last_modified: '2025-09-20T14:00:00Z',
+      classification: 'stability_report',
+      version_history: [
+        { version: '2.1', date: '2025-09-20', change_note: 'Minor formatting corrections' },
+        { version: '2.0', date: '2025-06-15', change_note: 'Added 12-month data' },
+      ],
+    },
+    {
+      id: generateId('veeva'),
+      vault_name: 'Certificate of Analysis — Batch 2024-PV-01',
+      document_number: 'DOC-2024-003',
+      current_version: '1.1',
+      synced_version: '1.0',
+      status: 'update_available',
+      last_modified: '2025-11-05T09:15:00Z',
+      classification: 'coa',
+      version_history: [
+        { version: '1.1', date: '2025-11-05', change_note: 'Corrected impurity value' },
+        { version: '1.0', date: '2025-03-10', change_note: 'Initial release' },
+      ],
+    },
+    {
+      id: generateId('veeva'),
+      vault_name: 'Process Validation Protocol — Drug Substance',
+      document_number: 'DOC-2024-004',
+      current_version: '2.0',
+      synced_version: undefined,
+      status: 'new',
+      last_modified: '2025-10-28T16:45:00Z',
+      classification: 'technical_report',
+      version_history: [
+        { version: '2.0', date: '2025-10-28', change_note: 'Updated acceptance criteria' },
+        { version: '1.0', date: '2025-01-15', change_note: 'Initial protocol' },
+      ],
+    },
+    {
+      id: generateId('veeva'),
+      vault_name: 'Stability Plan — Drug Substance',
+      document_number: 'DOC-2024-005',
+      current_version: '1.3',
+      synced_version: '1.3',
+      status: 'steady_state',
+      last_modified: '2025-08-12T11:20:00Z',
+      classification: 'stability_plan',
+      version_history: [
+        { version: '1.3', date: '2025-08-12', change_note: 'Added photostability protocol' },
+        { version: '1.2', date: '2025-04-20', change_note: 'Added intermediate conditions' },
+        { version: '1.0', date: '2024-11-01', change_note: 'Initial plan' },
+      ],
+    },
+    {
+      id: generateId('veeva'),
+      vault_name: 'Accelerated Stability Report — Drug Substance',
+      document_number: 'DOC-2025-001',
+      current_version: '1.0',
+      synced_version: undefined,
+      status: 'new',
+      last_modified: '2026-01-20T08:30:00Z',
+      classification: 'stability_report',
+      version_history: [
+        { version: '1.0', date: '2026-01-20', change_note: 'Initial 6-month accelerated study' },
+      ],
+    },
+  ];
+
+  const allVaults = getStorage<Record<string, VeevaDocument[]>>(VEEVA_VAULT_KEY, {});
+  allVaults[projectId] = docs;
+  setStorage(VEEVA_VAULT_KEY, allVaults);
+
+  // Create notifications for update_available and new docs
+  const notifs: VeevaNotification[] = docs
+    .filter((d) => d.status !== 'steady_state')
+    .map((d) => ({
+      id: generateId('vnotif'),
+      veeva_doc_id: d.id,
+      document_name: d.vault_name,
+      document_number: d.document_number,
+      new_version: d.current_version,
+      created_at: d.last_modified,
+      dismissed: false,
+    }));
+
+  const allNotifs = getStorage<Record<string, VeevaNotification[]>>(VEEVA_NOTIFICATIONS_KEY, {});
+  allNotifs[projectId] = notifs;
+  setStorage(VEEVA_NOTIFICATIONS_KEY, allNotifs);
+
+  return docs;
+}
+
+export const veeva = {
+  getVault: async (projectId: string) => {
+    await delay();
+    const allVaults = getStorage<Record<string, VeevaDocument[]>>(VEEVA_VAULT_KEY, {});
+    if (!allVaults[projectId]) {
+      return { items: seedVeevaVault(projectId) };
+    }
+    return { items: allVaults[projectId] };
+  },
+
+  sync: async (projectId: string, veevaDocId: string) => {
+    await delay(800);
+    const allVaults = getStorage<Record<string, VeevaDocument[]>>(VEEVA_VAULT_KEY, {});
+    const docs = allVaults[projectId] || [];
+    const doc = docs.find((d) => d.id === veevaDocId);
+    if (!doc) throw new Error('Veeva document not found');
+
+    // Update synced version
+    doc.synced_version = doc.current_version;
+    doc.status = 'steady_state';
+    setStorage(VEEVA_VAULT_KEY, allVaults);
+
+    // Create/update a document in the project
+    const mockText = `[Synced from Veeva Vault]\nDocument: ${doc.vault_name}\nVersion: ${doc.current_version}\nDocument Number: ${doc.document_number}\nLast Modified: ${doc.last_modified}\n\nThis document was synced from Veeva Vault. In a production environment, the full document content would be extracted here.`;
+    await documents.upload(projectId, `${doc.document_number}_v${doc.current_version}.pdf`, mockText, doc.classification);
+
+    // Dismiss related notification
+    const allNotifs = getStorage<Record<string, VeevaNotification[]>>(VEEVA_NOTIFICATIONS_KEY, {});
+    const notifs = allNotifs[projectId] || [];
+    const notif = notifs.find((n) => n.veeva_doc_id === veevaDocId);
+    if (notif) notif.dismissed = true;
+    setStorage(VEEVA_NOTIFICATIONS_KEY, allNotifs);
+
+    return doc;
+  },
+
+  syncAll: async (projectId: string) => {
+    await delay(500);
+    const allVaults = getStorage<Record<string, VeevaDocument[]>>(VEEVA_VAULT_KEY, {});
+    const docs = allVaults[projectId] || [];
+    const toSync = docs.filter((d) => d.status !== 'steady_state');
+
+    for (const doc of toSync) {
+      doc.synced_version = doc.current_version;
+      doc.status = 'steady_state';
+
+      const mockText = `[Synced from Veeva Vault]\nDocument: ${doc.vault_name}\nVersion: ${doc.current_version}\nDocument Number: ${doc.document_number}\nLast Modified: ${doc.last_modified}\n\nThis document was synced from Veeva Vault.`;
+      await documents.upload(projectId, `${doc.document_number}_v${doc.current_version}.pdf`, mockText, doc.classification);
+    }
+
+    setStorage(VEEVA_VAULT_KEY, allVaults);
+
+    // Dismiss all notifications
+    const allNotifs = getStorage<Record<string, VeevaNotification[]>>(VEEVA_NOTIFICATIONS_KEY, {});
+    const notifs = allNotifs[projectId] || [];
+    notifs.forEach((n) => { n.dismissed = true; });
+    setStorage(VEEVA_NOTIFICATIONS_KEY, allNotifs);
+
+    return { synced: toSync.length };
+  },
+
+  getNotifications: async (projectId: string) => {
+    await delay();
+    const allNotifs = getStorage<Record<string, VeevaNotification[]>>(VEEVA_NOTIFICATIONS_KEY, {});
+    if (!allNotifs[projectId]) {
+      // Seed vault first if needed
+      const allVaults = getStorage<Record<string, VeevaDocument[]>>(VEEVA_VAULT_KEY, {});
+      if (!allVaults[projectId]) seedVeevaVault(projectId);
+    }
+    const notifs = allNotifs[projectId] || [];
+    return { items: notifs.filter((n) => !n.dismissed) };
+  },
+
+  dismissNotification: async (projectId: string, notifId: string) => {
+    await delay();
+    const allNotifs = getStorage<Record<string, VeevaNotification[]>>(VEEVA_NOTIFICATIONS_KEY, {});
+    const notifs = allNotifs[projectId] || [];
+    const notif = notifs.find((n) => n.id === notifId);
+    if (notif) notif.dismissed = true;
+    setStorage(VEEVA_NOTIFICATIONS_KEY, allNotifs);
   },
 };

@@ -7,12 +7,18 @@ import {
   FileUp,
   RefreshCw,
   ChevronDown,
+  ChevronUp,
+  Download,
+  Cloud,
+  CloudOff,
+  History,
+  Loader2,
 } from 'lucide-react';
 import * as pdfjsLib from 'pdfjs-dist';
 import mammoth from 'mammoth';
-import type { DocumentFile, DocumentClassification } from '../types';
+import type { DocumentFile, DocumentClassification, VeevaDocument } from '../types';
 import { useProject } from '../context/ProjectContext';
-import { documents } from '../api/client';
+import { documents, veeva } from '../api/client';
 
 // Configure PDF.js worker
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
@@ -25,6 +31,96 @@ const CLASSIFICATION_OPTIONS: { value: DocumentClassification; label: string }[]
   { value: 'other_supporting', label: 'Other Supporting' },
 ];
 
+const VEEVA_STATUS_DISPLAY: Record<string, { label: string; color: string }> = {
+  steady_state: { label: 'Up to date', color: 'bg-green-100 text-green-700' },
+  update_available: { label: 'Update Available', color: 'bg-amber-100 text-amber-700 animate-pulse' },
+  new: { label: 'New', color: 'bg-blue-100 text-blue-700' },
+};
+
+function VeevaRow({ doc, syncing, expanded, onToggleHistory, onSync }: {
+  doc: VeevaDocument;
+  syncing: boolean;
+  expanded: boolean;
+  onToggleHistory: () => void;
+  onSync: () => void;
+}) {
+  const st = VEEVA_STATUS_DISPLAY[doc.status] || VEEVA_STATUS_DISPLAY.steady_state;
+  return (
+    <>
+      <tr className="hover:bg-gray-50/50 group">
+        <td className="px-4 py-2.5">
+          <div className="flex items-center gap-2">
+            <FileText size={14} className="text-blue-400 flex-shrink-0" />
+            <span className="text-gray-900 text-sm font-medium">{doc.vault_name}</span>
+          </div>
+        </td>
+        <td className="px-4 py-2.5">
+          <span className="font-mono text-xs text-gray-500">{doc.document_number}</span>
+        </td>
+        <td className="px-4 py-2.5">
+          <span className="font-mono text-xs text-gray-900 font-medium">v{doc.current_version}</span>
+        </td>
+        <td className="px-4 py-2.5">
+          {doc.synced_version ? (
+            <span className="font-mono text-xs text-gray-500">v{doc.synced_version}</span>
+          ) : (
+            <span className="text-xs text-gray-300">—</span>
+          )}
+        </td>
+        <td className="px-4 py-2.5">
+          <span className={`inline-flex text-[10px] px-2 py-0.5 rounded-full font-medium ${st.color}`}>
+            {st.label}
+          </span>
+        </td>
+        <td className="px-4 py-2.5 text-right">
+          <div className="flex items-center gap-2 justify-end">
+            <button
+              onClick={onToggleHistory}
+              className="text-gray-300 hover:text-gray-500 transition-colors"
+              title="Version history"
+            >
+              <History size={14} />
+            </button>
+            {doc.status !== 'steady_state' && (
+              <button
+                onClick={onSync}
+                disabled={syncing}
+                className="inline-flex items-center gap-1 text-[11px] font-medium text-primary-600 hover:text-primary-800 bg-primary-50 hover:bg-primary-100 px-2.5 py-1 rounded-md transition-colors disabled:opacity-50"
+              >
+                {syncing ? <Loader2 size={11} className="animate-spin" /> : <Download size={11} />}
+                {syncing ? 'Syncing' : 'Sync'}
+              </button>
+            )}
+          </div>
+        </td>
+      </tr>
+      {expanded && (
+        <tr>
+          <td colSpan={6} className="px-4 py-3 bg-gray-50/80">
+            <div className="ml-6">
+              <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-2">Version History</p>
+              <div className="space-y-1.5">
+                {doc.version_history.map((v) => (
+                  <div key={v.version} className="flex items-center gap-3 text-xs">
+                    <span className={`font-mono font-medium w-10 ${v.version === doc.synced_version ? 'text-green-600' : 'text-gray-500'}`}>
+                      v{v.version}
+                    </span>
+                    <span className="text-gray-400 w-20">{v.date}</span>
+                    <span className="text-gray-600">{v.change_note}</span>
+                    {v.version === doc.synced_version && (
+                      <span className="text-[9px] px-1.5 py-0.5 rounded bg-green-100 text-green-600 font-medium">SYNCED</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </td>
+        </tr>
+      )}
+    </>
+  );
+}
+
 export default function Documents() {
   const { current, reload: reloadProjects } = useProject();
   const [docs, setDocs] = useState<DocumentFile[]>([]);
@@ -32,6 +128,14 @@ export default function Documents() {
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [uploadQueue, setUploadQueue] = useState<{ name: string; status: 'pending' | 'uploading' | 'done' | 'error' }[]>([]);
+
+  // Veeva Vault state
+  const [veevaOpen, setVeevaOpen] = useState(true);
+  const [veevaDocs, setVeevaDocs] = useState<VeevaDocument[]>([]);
+  const [veevaLoading, setVeevaLoading] = useState(false);
+  const [syncingIds, setSyncingIds] = useState<Set<string>>(new Set());
+  const [syncingAll, setSyncingAll] = useState(false);
+  const [expandedVeevaId, setExpandedVeevaId] = useState<string | null>(null);
 
   const pid = current?.id;
 
@@ -49,6 +153,46 @@ export default function Documents() {
   }, [pid]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Load Veeva vault documents
+  const loadVeeva = useCallback(async () => {
+    if (!pid) return;
+    setVeevaLoading(true);
+    try {
+      const data = await veeva.getVault(pid);
+      setVeevaDocs(data.items);
+    } catch { /* */ } finally {
+      setVeevaLoading(false);
+    }
+  }, [pid]);
+
+  useEffect(() => { loadVeeva(); }, [loadVeeva]);
+
+  const handleVeevaSync = async (docId: string) => {
+    if (!pid) return;
+    setSyncingIds((s) => new Set(s).add(docId));
+    try {
+      await veeva.sync(pid, docId);
+      await loadVeeva();
+      await load();
+      await reloadProjects();
+    } catch { /* */ } finally {
+      setSyncingIds((s) => { const n = new Set(s); n.delete(docId); return n; });
+    }
+  };
+
+  const handleVeevaSyncAll = async () => {
+    if (!pid) return;
+    setSyncingAll(true);
+    try {
+      await veeva.syncAll(pid);
+      await loadVeeva();
+      await load();
+      await reloadProjects();
+    } catch { /* */ } finally {
+      setSyncingAll(false);
+    }
+  };
 
   // Extract text from various file types with table structure preservation
   const extractTextFromFile = async (file: File): Promise<string> => {
@@ -291,6 +435,87 @@ export default function Documents() {
         <p className="text-sm text-gray-500 mt-1">
           Drop your source files — the system will classify them and determine what can be generated.
         </p>
+      </div>
+
+      {/* ── Veeva Vault Panel ─────────────────────────────────── */}
+      <div className="bg-white rounded-xl border border-gray-200 mb-6 overflow-hidden">
+        <button
+          onClick={() => setVeevaOpen(!veevaOpen)}
+          className="w-full flex items-center justify-between px-5 py-3.5 hover:bg-gray-50 transition-colors"
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center">
+              <Cloud size={16} className="text-white" />
+            </div>
+            <div className="text-left">
+              <span className="text-sm font-semibold text-gray-900">Veeva Vault</span>
+              <span className="ml-2 text-[10px] px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-medium">Connected</span>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            {veevaDocs.filter((d) => d.status !== 'steady_state').length > 0 && (
+              <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-medium">
+                {veevaDocs.filter((d) => d.status !== 'steady_state').length} update{veevaDocs.filter((d) => d.status !== 'steady_state').length !== 1 ? 's' : ''}
+              </span>
+            )}
+            {veevaOpen ? <ChevronUp size={16} className="text-gray-400" /> : <ChevronDown size={16} className="text-gray-400" />}
+          </div>
+        </button>
+
+        {veevaOpen && (
+          <div className="border-t border-gray-100">
+            {/* Sync All header */}
+            {veevaDocs.some((d) => d.status !== 'steady_state') && (
+              <div className="px-5 py-2.5 bg-amber-50 border-b border-amber-100 flex items-center justify-between">
+                <p className="text-xs text-amber-800">
+                  Some documents have new versions available in Veeva Vault.
+                </p>
+                <button
+                  onClick={handleVeevaSyncAll}
+                  disabled={syncingAll}
+                  className="inline-flex items-center gap-1.5 text-xs font-medium text-amber-700 hover:text-amber-900 bg-amber-200/50 hover:bg-amber-200 px-3 py-1.5 rounded-md transition-colors disabled:opacity-50"
+                >
+                  {syncingAll ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
+                  {syncingAll ? 'Syncing...' : 'Sync All'}
+                </button>
+              </div>
+            )}
+
+            {veevaLoading ? (
+              <div className="py-6 text-center text-gray-400 text-sm">Loading vault...</div>
+            ) : veevaDocs.length === 0 ? (
+              <div className="py-6 text-center">
+                <CloudOff size={20} className="mx-auto mb-2 text-gray-300" />
+                <p className="text-gray-400 text-sm">No documents in vault</p>
+              </div>
+            ) : (
+              <table className="min-w-full divide-y divide-gray-100 text-sm">
+                <thead className="bg-gray-50/50">
+                  <tr>
+                    <th className="px-4 py-2.5 text-left font-medium text-gray-500 text-xs">Document</th>
+                    <th className="px-4 py-2.5 text-left font-medium text-gray-500 text-xs">Doc Number</th>
+                    <th className="px-4 py-2.5 text-left font-medium text-gray-500 text-xs">Vault Ver.</th>
+                    <th className="px-4 py-2.5 text-left font-medium text-gray-500 text-xs">Synced Ver.</th>
+                    <th className="px-4 py-2.5 text-left font-medium text-gray-500 text-xs">Status</th>
+                    <th className="px-4 py-2.5"></th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {veevaDocs.map((vd) => (
+                    <VeevaRow
+                      key={vd.id}
+                      doc={vd}
+                      syncing={syncingIds.has(vd.id)}
+                      expanded={expandedVeevaId === vd.id}
+                      onToggleHistory={() => setExpandedVeevaId(expandedVeevaId === vd.id ? null : vd.id)}
+                      onSync={() => handleVeevaSync(vd.id)}
+                    />
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        )}
       </div>
 
       {/* ── Drop Zone ──────────────────────────────────────────── */}

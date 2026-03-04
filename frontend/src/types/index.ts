@@ -202,6 +202,7 @@ export interface GenerationOptions {
 
 export interface GenerationRun {
   run_id: string;
+  section_id?: string;
   status: GenerationStatus;
   outputs?: {
     pdf?: string;
@@ -416,4 +417,36 @@ export interface AllocationPackJSON {
     definition: string;
     source_page: number;
   }>;
+}
+
+// ── Veeva Vault ───────────────────────────────────────────────────
+
+export type VeevaDocStatus = 'steady_state' | 'update_available' | 'new';
+
+export interface VeevaVersionEntry {
+  version: string;
+  date: string;
+  change_note: string;
+}
+
+export interface VeevaDocument {
+  id: string;
+  vault_name: string;
+  document_number: string;
+  current_version: string;
+  synced_version?: string;
+  status: VeevaDocStatus;
+  last_modified: string;
+  classification: DocumentClassification;
+  version_history: VeevaVersionEntry[];
+}
+
+export interface VeevaNotification {
+  id: string;
+  veeva_doc_id: string;
+  document_name: string;
+  document_number: string;
+  new_version: string;
+  created_at: string;
+  dismissed: boolean;
 }

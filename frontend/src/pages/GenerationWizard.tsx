@@ -26,7 +26,7 @@ function getGeneratedHtml(runId: string): string | null {
 }
 
 // Download HTML file
-function downloadHtml(runId: string, projectName: string) {
+function downloadHtml(runId: string, projectName: string, sectionNumber: string, sectionTitle: string) {
   const html = getGeneratedHtml(runId);
   if (!html) {
     alert('HTML content not found. Please regenerate the document.');
@@ -37,7 +37,7 @@ function downloadHtml(runId: string, projectName: string) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `${projectName.replace(/[^a-z0-9]/gi, '_')}_3.2.S.7.3_Stability_Data.html`;
+  a.download = `${projectName.replace(/[^a-z0-9]/gi, '_')}_${sectionNumber}_${sectionTitle.replace(/[^a-z0-9]/gi, '_')}.html`;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
@@ -59,7 +59,13 @@ const STATUS_DISPLAY: Record<GenerationStatus, { icon: React.ReactNode; color: s
   failed: { icon: <XCircle size={14} className="text-red-500" />, color: 'bg-red-100 text-red-700', label: 'Failed' },
 };
 
-export default function GenerationWizard() {
+interface GenerationWizardProps {
+  sectionId?: string;
+  sectionNumber?: string;
+  sectionTitle?: string;
+}
+
+export default function GenerationWizard({ sectionId = 'S.7.3', sectionNumber = '3.2.S.7.3', sectionTitle = 'Stability Data' }: GenerationWizardProps) {
   const { current } = useProject();
   const [step, setStep] = useState<Step>(1);
   const [run, setRun] = useState<GenerationRun | null>(null);
@@ -67,7 +73,7 @@ export default function GenerationWizard() {
   const [pastRuns, setPastRuns] = useState<GenerationRun[]>([]);
 
   const [includeTrace, setIncludeTrace] = useState(true);
-  const [tablePrefix, setTablePrefix] = useState('S.7-');
+  const [tablePrefix, setTablePrefix] = useState(`${sectionId}-`);
 
   const loadPastRuns = async () => {
     if (!current) return;
@@ -96,6 +102,7 @@ export default function GenerationWizard() {
       const docTexts = getDocumentTexts();
 
       const request: GenerateRequest = {
+        section: sectionId,
         project: {
           id: current.id,
           name: current.name,
@@ -138,7 +145,7 @@ export default function GenerationWizard() {
   if (run && run.status === 'completed') {
     return (
       <div className="p-6 max-w-4xl mx-auto">
-        <h1 className="text-2xl font-bold text-gray-900 mb-6">Generate 3.2.S.7.3</h1>
+        <h1 className="text-2xl font-bold text-gray-900 mb-6">Generate {sectionNumber}</h1>
 
         {/* Success card */}
         <div className="bg-white rounded-xl border-2 border-green-200 p-8 text-center mb-8">
@@ -147,13 +154,13 @@ export default function GenerationWizard() {
           </div>
           <h2 className="text-lg font-semibold text-gray-900 mb-1">Document Generated</h2>
           <p className="text-sm text-gray-500 mb-6">
-            3.2.S.7.3 Stability Data — <span className="font-mono text-xs">{run.run_id.slice(0, 8)}</span>
+            {sectionNumber} {sectionTitle} — <span className="font-mono text-xs">{run.run_id.slice(0, 8)}</span>
           </p>
 
           <div className="flex items-center justify-center gap-4 flex-wrap">
             {run.outputs?.html && (
               <button
-                onClick={() => downloadHtml(run.outputs!.html!, current?.name || 'Document')}
+                onClick={() => downloadHtml(run.outputs!.html!, current?.name || 'Document', sectionNumber, sectionTitle)}
                 className="inline-flex items-center gap-3 bg-primary-600 text-white px-6 py-3 rounded-lg text-sm font-medium hover:bg-primary-700 shadow-sm transition-colors"
               >
                 <Download size={18} />
@@ -204,7 +211,7 @@ export default function GenerationWizard() {
                       <span className="text-xs text-gray-400">{new Date(r.created_at).toLocaleString()}</span>
                     </div>
                     {r.outputs?.html && r.status === 'completed' && (
-                      <button onClick={() => downloadHtml(r.outputs!.html!, current?.name || 'Document')} className="inline-flex items-center gap-1.5 text-xs text-primary-600 hover:text-primary-800">
+                      <button onClick={() => downloadHtml(r.outputs!.html!, current?.name || 'Document', sectionNumber, sectionTitle)} className="inline-flex items-center gap-1.5 text-xs text-primary-600 hover:text-primary-800">
                         <Download size={12} /> HTML
                       </button>
                     )}
@@ -221,7 +228,7 @@ export default function GenerationWizard() {
   // ── Wizard flow ─────────────────────────────────────────────────
   return (
     <div className="p-6 max-w-4xl mx-auto">
-      <h1 className="text-2xl font-bold text-gray-900 mb-1">Generate 3.2.S.7.3</h1>
+      <h1 className="text-2xl font-bold text-gray-900 mb-1">Generate {sectionNumber}</h1>
       <p className="text-sm text-gray-500 mb-6">
         Stability Data for <span className="font-medium">{current.name}</span>
       </p>
@@ -244,22 +251,10 @@ export default function GenerationWizard() {
           <div className="space-y-4">
             <h2 className="font-semibold text-gray-900 mb-2">Section Scope</h2>
             <div className="p-4 rounded-md bg-primary-50 border border-primary-200">
-              <p className="text-sm font-medium text-primary-900">3.2.S.7.3 — Stability Data (Drug Substance)</p>
+              <p className="text-sm font-medium text-primary-900">{sectionNumber} — {sectionTitle}</p>
               <p className="text-xs text-primary-700 mt-1">
-                Generates the complete stability data document with Table of Contents,
-                List of Tables, abbreviations, overview table, and detailed data tables per batch/condition.
+                Generates the complete {sectionTitle.toLowerCase()} document based on your uploaded source documents.
               </p>
-            </div>
-            <div className="text-xs text-gray-500 space-y-1">
-              <p>The document will contain:</p>
-              <ul className="ml-4 space-y-0.5">
-                <li>• Table of Contents with internal hyperlinks</li>
-                <li>• List of Tables</li>
-                <li>• Abbreviations</li>
-                <li>• Introduction</li>
-                <li>• Table 1 — Master overview of all stability studies</li>
-                <li>• Tables 2..N — Detailed stability data per batch/condition</li>
-              </ul>
             </div>
           </div>
         )}
@@ -286,7 +281,7 @@ export default function GenerationWizard() {
             <h2 className="font-semibold text-gray-900 mb-2">Review Configuration</h2>
             <dl className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
               <dt className="text-gray-500">Section</dt>
-              <dd className="text-gray-900">3.2.S.7.3 Stability Data</dd>
+              <dd className="text-gray-900">{sectionNumber} {sectionTitle}</dd>
               <dt className="text-gray-500">Output Format</dt>
               <dd className="text-gray-900">PDF</dd>
               <dt className="text-gray-500">Traceability</dt>
@@ -315,7 +310,7 @@ export default function GenerationWizard() {
           </button>
         ) : (
           <button onClick={handleGenerate} disabled={generating} className="inline-flex items-center gap-2 bg-green-600 text-white px-5 py-2 rounded-md text-sm font-medium hover:bg-green-700 disabled:opacity-50">
-            <Wand2 size={16} /> {generating ? 'Generating...' : 'Generate 3.2.S.7.3'}
+            <Wand2 size={16} /> {generating ? 'Generating...' : 'Generate {sectionNumber}'}
           </button>
         )}
       </div>
@@ -337,7 +332,7 @@ export default function GenerationWizard() {
                     <span className="text-xs text-gray-400">{new Date(r.created_at).toLocaleString()}</span>
                   </div>
                   {r.outputs?.html && r.status === 'completed' && (
-                    <button onClick={() => downloadHtml(r.outputs!.html!, current?.name || 'Document')} className="inline-flex items-center gap-1.5 text-xs text-primary-600 hover:text-primary-800 font-medium">
+                    <button onClick={() => downloadHtml(r.outputs!.html!, current?.name || 'Document', sectionNumber, sectionTitle)} className="inline-flex items-center gap-1.5 text-xs text-primary-600 hover:text-primary-800 font-medium">
                       <Download size={12} /> Download HTML
                     </button>
                   )}
