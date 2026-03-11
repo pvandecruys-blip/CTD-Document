@@ -232,6 +232,84 @@ If source documents contain stability data, your output tables MUST contain that
 Do NOT output empty cells or "—" if the data exists in the source documents.
 Only use "—" when data is genuinely not available in any source document.
 
+# SOURCE TRACEABILITY - CRITICAL
+
+You MUST add source traceability to every data point, value, or claim in the document.
+
+## How to Add References
+1. For every piece of data extracted from a source document (batch numbers, test results, acceptance criteria, storage conditions, dates, etc.), add a superscript reference immediately after the value.
+2. Format: `<sup class="src-ref"><a href="#ref-N">[N]</a></sup>` where N is a sequential number starting from 1.
+3. At the END of the document (before `</body>`), add a "SOURCE TRACEABILITY" appendix section.
+
+## Reference Format in Text
+Example:
+```html
+<td>99.5%<sup class="src-ref"><a href="#ref-1">[1]</a></sup></td>
+```
+
+## Source Traceability Appendix Format
+After all content sections, add:
+```html
+<div class="page-break"></div>
+<h2 id="source-traceability">SOURCE TRACEABILITY</h2>
+<p style="font-size:10pt;color:#666;">Each reference below links a data point in this document back to its source.</p>
+<table class="traceability-table">
+  <thead>
+    <tr><th>Ref</th><th>Source Document</th><th>Location</th><th>Original Text / Value</th></tr>
+  </thead>
+  <tbody>
+    <tr id="ref-1"><td><a href="#ref-1">[1]</a></td><td>Stability_Report_Lot_A.pdf</td><td>Page 12, Table 3</td><td>"Assay: 99.5%"</td></tr>
+    <!-- ... more rows ... -->
+  </tbody>
+</table>
+```
+
+## Traceability CSS (include in <style>)
+```css
+.src-ref a {
+  color: #0066cc;
+  text-decoration: none;
+  font-size: 9px;
+  font-weight: bold;
+  background: #E8F0FE;
+  padding: 1px 4px;
+  border-radius: 3px;
+  margin-left: 2px;
+  cursor: pointer;
+}
+.src-ref a:hover {
+  background: #C5DAF0;
+  text-decoration: underline;
+}
+.traceability-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 9pt;
+  margin-top: 12px;
+}
+.traceability-table th {
+  background: #003366;
+  color: white;
+  padding: 6px 10px;
+  text-align: left;
+  font-size: 9pt;
+}
+.traceability-table td {
+  border: 1px solid #ccc;
+  padding: 5px 8px;
+  vertical-align: top;
+}
+.traceability-table tr:nth-child(even) { background: #f9f9f9; }
+```
+
+## Rules
+- Every data value that comes from a source document MUST have a reference
+- If the same source is used multiple times, create separate references (each with its own number)
+- The "Location" column should include page number and table/section reference when identifiable from the document text
+- The "Original Text" column should show the exact text snippet from the source
+- Standard boilerplate text (abbreviations, fixed intro text) does NOT need references
+- Include the traceability appendix in the Table of Contents as the last entry
+
 # QUALITY CHECKLIST (Self-Verify Before Output)
 
 Before returning the HTML, verify:
@@ -242,6 +320,8 @@ Before returning the HTML, verify:
 □ No placeholder text like "[INSERT]" or "TBD" remains
 □ All tables have header rows with correct styling
 □ CSS @page rule is present for A4 printing
+□ Source traceability references are present for all extracted data points
+□ Source Traceability appendix is present at the end with all references
 □ Document ends with </html>
 
 # DETERMINISM REQUIREMENTS
@@ -292,6 +372,8 @@ Start with `<!DOCTYPE html>` and end with `</html>`.
 # STYLE: Same as S.7.3 (A4 portrait, Arial, #003366 headers, zebra tables, blue links)
 
 # DATA EXTRACTION: Extract ALL data from source documents. Never fabricate data. Use "—" only for genuinely missing data.
+
+# SOURCE TRACEABILITY: Add superscript references [1], [2], etc. after every extracted data point. Include a "SOURCE TRACEABILITY" appendix at the end with a table mapping each reference to: source document name, page/location, and original text snippet. Use the same CSS classes as S.7.3 (.src-ref, .traceability-table). Standard boilerplate does not need references.
 """
 
 
@@ -324,6 +406,8 @@ Start with `<!DOCTYPE html>` and end with `</html>`.
 # STYLE: Same as S.7.3 (A4 portrait, Arial, #003366 headers, zebra tables, blue links)
 
 # DATA EXTRACTION: Extract ALL data from source documents. Never fabricate data. Use "—" only for genuinely missing data.
+
+# SOURCE TRACEABILITY: Add superscript references [1], [2], etc. after every extracted data point. Include a "SOURCE TRACEABILITY" appendix at the end with a table mapping each reference to: source document name, page/location, and original text snippet. Use the same CSS classes as S.7.3 (.src-ref, .traceability-table). Standard boilerplate does not need references.
 """
 
 
@@ -426,6 +510,8 @@ For each unit operation, generate a detailed table:
 - Look for statistical data (Cpk, Ppk, RSD, mean, range)
 - Extract protocol numbers and dates
 - Never fabricate data. Use "—" only for genuinely missing data.
+
+# SOURCE TRACEABILITY: Add superscript references [1], [2], etc. after every extracted data point. Include a "SOURCE TRACEABILITY" appendix at the end with a table mapping each reference to: source document name, page/location, and original text snippet. Use the same CSS classes as S.7.3 (.src-ref, .traceability-table). Standard boilerplate does not need references.
 """
 
 
