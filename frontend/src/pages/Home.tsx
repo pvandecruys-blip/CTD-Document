@@ -232,8 +232,8 @@ export default function Home() {
                 <Shield className="text-white" size={28} />
               </div>
               <div>
-                <h1 className="text-2xl font-bold text-gray-900">CMC Document Generator</h1>
-                <p className="text-gray-500">AI-powered CTD Module 3 authoring tool</p>
+                <h1 className="text-2xl font-bold text-gray-900">CTD Document Generator</h1>
+                <p className="text-gray-500">AI-powered Common Technical Document authoring tool</p>
               </div>
             </div>
             <button
@@ -253,7 +253,7 @@ export default function Home() {
         <div className="bg-white rounded-xl border border-gray-200 p-6 mb-8">
           <h2 className="text-lg font-semibold text-gray-900 mb-2">Your CTD Projects</h2>
           <p className="text-gray-600 text-sm">
-            Each project contains all sections of Module 3 Quality documentation (Drug Substance 3.2.S and Drug Product 3.2.P).
+            Each project covers all five CTD modules — from administrative information (Module 1) through clinical study reports (Module 5).
             Select a project to continue working on it, or create a new one to start fresh.
           </p>
           <div className="flex gap-6 mt-4 text-xs">
@@ -308,8 +308,8 @@ export default function Home() {
 
         {/* Footer Info */}
         <div className="text-center text-xs text-gray-400 mt-12">
-          <p>CTD Module 3 Quality Documentation Generator v0.1.0</p>
-          <p className="mt-1">Compliant with ICH M4Q, EMA, and FDA requirements</p>
+          <p>CTD Document Generator v0.1.0</p>
+          <p className="mt-1">Compliant with ICH M4Q, ICH M4S, ICH M4E, EMA, and FDA requirements</p>
         </div>
       </main>
 

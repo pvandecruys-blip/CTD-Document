@@ -11,6 +11,10 @@ import {
   Sparkles,
   Lock,
   CheckCircle2,
+  FileText,
+  BookOpen,
+  Microscope,
+  Users,
 } from 'lucide-react';
 import { CTD_STRUCTURE, getLeafSections, getGenerableSections, type CTDSection } from '../config/ctdStructure';
 import { generation } from '../api/client';
@@ -167,11 +171,70 @@ function ProgressTracker({ completedCount, generableCount, totalLeaf, completedS
   );
 }
 
+const CTD_MODULES = [
+  {
+    id: 1,
+    title: 'Module 1',
+    subtitle: 'Administrative Information',
+    icon: FileText,
+    color: 'text-gray-400',
+    bgColor: 'bg-gray-50',
+    borderColor: 'border-gray-200',
+    enabled: false,
+    description: 'Regional administrative information including application forms, prescribing information, and labelling.',
+  },
+  {
+    id: 2,
+    title: 'Module 2',
+    subtitle: 'Summaries',
+    icon: BookOpen,
+    color: 'text-purple-400',
+    bgColor: 'bg-purple-50',
+    borderColor: 'border-purple-200',
+    enabled: false,
+    description: 'Quality Overall Summary (QOS), Nonclinical Overview, Clinical Overview, and Written Summaries.',
+  },
+  {
+    id: 3,
+    title: 'Module 3',
+    subtitle: 'Quality (CMC)',
+    icon: FlaskConical,
+    color: 'text-primary-600',
+    bgColor: 'bg-primary-50',
+    borderColor: 'border-primary-300',
+    enabled: true,
+    description: 'Drug Substance and Drug Product quality documentation including manufacturing, controls, and stability.',
+  },
+  {
+    id: 4,
+    title: 'Module 4',
+    subtitle: 'Nonclinical',
+    icon: Microscope,
+    color: 'text-orange-400',
+    bgColor: 'bg-orange-50',
+    borderColor: 'border-orange-200',
+    enabled: false,
+    description: 'Nonclinical study reports — pharmacology, pharmacokinetics, and toxicology.',
+  },
+  {
+    id: 5,
+    title: 'Module 5',
+    subtitle: 'Clinical',
+    icon: Users,
+    color: 'text-teal-400',
+    bgColor: 'bg-teal-50',
+    borderColor: 'border-teal-200',
+    enabled: false,
+    description: 'Clinical study reports, case report forms, and individual patient data listings.',
+  },
+];
+
 export default function ProjectDashboard() {
   const navigate = useNavigate();
   const { projectId } = useParams<{ projectId: string }>();
   const { current, selectById, loading } = useProject();
   const [runs, setRuns] = useState<GenerationRun[]>([]);
+  const [activeModule, setActiveModule] = useState(3);
 
   useEffect(() => {
     if (projectId) selectById(projectId);
@@ -225,64 +288,118 @@ export default function ProjectDashboard() {
             </div>
             <div>
               <h1 className="text-xl font-bold text-gray-900">{current.name}</h1>
-              <p className="text-sm text-gray-500">{current.description || 'CTD Module 3 – Quality'}</p>
+              <p className="text-sm text-gray-500">{current.description || 'Common Technical Document'}</p>
             </div>
           </div>
         </div>
       </header>
 
       <main className="max-w-5xl mx-auto px-6 py-8 space-y-8">
-        {/* Progress tracker */}
-        <ProgressTracker
-          completedCount={completedSections.size}
-          generableCount={generableCount}
-          totalLeaf={totalLeaf}
-          completedSections={completedSections}
-        />
-
-        {/* Info banner */}
-        <div className="bg-primary-50 border border-primary-200 rounded-lg p-4 flex items-start gap-3">
-          <Sparkles className="text-primary-500 flex-shrink-0 mt-0.5" size={18} />
-          <div>
-            <p className="text-primary-900 font-medium text-sm">CTD Module 3 – Quality</p>
-            <p className="text-primary-700 text-xs mt-0.5">
-              Sections marked <span className="font-semibold text-green-700">Generated</span> are complete.
-              Sections marked <span className="font-semibold text-amber-700">AI Ready</span> can be generated from your uploaded documents.
-            </p>
-          </div>
+        {/* Module Tabs */}
+        <div className="flex gap-2 overflow-x-auto pb-1">
+          {CTD_MODULES.map((mod) => {
+            const ModIcon = mod.icon;
+            const isActive = activeModule === mod.id;
+            return (
+              <button
+                key={mod.id}
+                onClick={() => mod.enabled && setActiveModule(mod.id)}
+                className={`flex items-center gap-2 px-4 py-3 rounded-xl border text-sm font-medium transition-all whitespace-nowrap ${
+                  isActive
+                    ? `${mod.bgColor} ${mod.borderColor} ${mod.color} shadow-sm`
+                    : mod.enabled
+                    ? 'bg-white border-gray-200 text-gray-700 hover:border-gray-300 hover:shadow-sm cursor-pointer'
+                    : 'bg-gray-50 border-gray-100 text-gray-400 cursor-default'
+                }`}
+              >
+                <ModIcon size={16} />
+                <span>{mod.title}</span>
+                {!mod.enabled && (
+                  <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-gray-200 text-gray-500 font-medium">
+                    SOON
+                  </span>
+                )}
+              </button>
+            );
+          })}
         </div>
 
-        {/* Drug Substance */}
-        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-          <div className="flex items-center gap-3 px-5 py-4 border-b border-gray-100 bg-blue-50/50">
-            <FlaskConical className="text-blue-600" size={20} />
-            <div>
-              <h2 className="text-base font-bold text-gray-900">3.2.S – Drug Substance</h2>
-              <p className="text-xs text-gray-500">Active Pharmaceutical Ingredient</p>
+        {/* Module 3 Content */}
+        {activeModule === 3 && (
+          <>
+            {/* Progress tracker */}
+            <ProgressTracker
+              completedCount={completedSections.size}
+              generableCount={generableCount}
+              totalLeaf={totalLeaf}
+              completedSections={completedSections}
+            />
+
+            {/* Info banner */}
+            <div className="bg-primary-50 border border-primary-200 rounded-lg p-4 flex items-start gap-3">
+              <Sparkles className="text-primary-500 flex-shrink-0 mt-0.5" size={18} />
+              <div>
+                <p className="text-primary-900 font-medium text-sm">Module 3 – Quality (CMC)</p>
+                <p className="text-primary-700 text-xs mt-0.5">
+                  Sections marked <span className="font-semibold text-green-700">Generated</span> are complete.
+                  Sections marked <span className="font-semibold text-amber-700">AI Ready</span> can be generated from your uploaded documents.
+                </p>
+              </div>
             </div>
-          </div>
-          <div className="py-2 px-2">
-            {drugSubstance.children!.map((section) => (
-              <SectionRow key={section.id} section={section} depth={0} projectId={projectId!} completedSections={completedSections} />
-            ))}
-          </div>
-        </div>
 
-        {/* Drug Product */}
-        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-          <div className="flex items-center gap-3 px-5 py-4 border-b border-gray-100 bg-green-50/50">
-            <Pill className="text-green-600" size={20} />
-            <div>
-              <h2 className="text-base font-bold text-gray-900">3.2.P – Drug Product</h2>
-              <p className="text-xs text-gray-500">Finished Dosage Form</p>
+            {/* Drug Substance */}
+            <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+              <div className="flex items-center gap-3 px-5 py-4 border-b border-gray-100 bg-blue-50/50">
+                <FlaskConical className="text-blue-600" size={20} />
+                <div>
+                  <h2 className="text-base font-bold text-gray-900">3.2.S – Drug Substance</h2>
+                  <p className="text-xs text-gray-500">Active Pharmaceutical Ingredient</p>
+                </div>
+              </div>
+              <div className="py-2 px-2">
+                {drugSubstance.children!.map((section) => (
+                  <SectionRow key={section.id} section={section} depth={0} projectId={projectId!} completedSections={completedSections} />
+                ))}
+              </div>
             </div>
-          </div>
-          <div className="py-2 px-2">
-            {drugProduct.children!.map((section) => (
-              <SectionRow key={section.id} section={section} depth={0} projectId={projectId!} completedSections={completedSections} />
-            ))}
-          </div>
-        </div>
+
+            {/* Drug Product */}
+            <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+              <div className="flex items-center gap-3 px-5 py-4 border-b border-gray-100 bg-green-50/50">
+                <Pill className="text-green-600" size={20} />
+                <div>
+                  <h2 className="text-base font-bold text-gray-900">3.2.P – Drug Product</h2>
+                  <p className="text-xs text-gray-500">Finished Dosage Form</p>
+                </div>
+              </div>
+              <div className="py-2 px-2">
+                {drugProduct.children!.map((section) => (
+                  <SectionRow key={section.id} section={section} depth={0} projectId={projectId!} completedSections={completedSections} />
+                ))}
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* Placeholder for other modules */}
+        {activeModule !== 3 && (() => {
+          const mod = CTD_MODULES.find(m => m.id === activeModule);
+          if (!mod) return null;
+          const ModIcon = mod.icon;
+          return (
+            <div className="bg-white rounded-xl border border-gray-200 p-12 text-center">
+              <div className={`inline-flex p-4 rounded-2xl ${mod.bgColor} mb-4`}>
+                <ModIcon size={32} className={mod.color} />
+              </div>
+              <h3 className="text-lg font-semibold text-gray-900 mb-2">{mod.title} – {mod.subtitle}</h3>
+              <p className="text-sm text-gray-500 max-w-md mx-auto mb-6">{mod.description}</p>
+              <span className="inline-flex items-center gap-2 text-sm px-4 py-2 rounded-full bg-amber-50 text-amber-700 border border-amber-200 font-medium">
+                <Lock size={14} />
+                Coming Soon
+              </span>
+            </div>
+          );
+        })()}
       </main>
     </div>
   );
