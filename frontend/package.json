@@ -9,7 +9,6 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "html2pdf.js": "^0.14.0",
     "lucide-react": "^0.400.0",
     "mammoth": "^1.11.0",
     "pdfjs-dist": "^3.11.174",

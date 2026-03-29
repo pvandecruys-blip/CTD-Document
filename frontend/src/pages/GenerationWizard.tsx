@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
-import { ChevronRight, ChevronLeft, Wand2, Check, Download, Clock, CheckCircle2, XCircle, Loader2, FileDown, Link2 } from 'lucide-react';
+import { ChevronRight, ChevronLeft, Wand2, Check, Download, FileText, Clock, CheckCircle2, XCircle, Loader2 } from 'lucide-react';
 import type { GenerationRun, GenerationStatus } from '../types';
 import { useProject } from '../context/ProjectContext';
-import { generation, studies, lots, conditions, attributes, documents, traceability, type GenerateRequest } from '../api/client';
+import { generation, studies, lots, conditions, attributes, documents, type GenerateRequest } from '../api/client';
 
 // Helper to get document texts from localStorage
 function getDocumentTexts(): Record<string, string> {
@@ -44,42 +44,6 @@ function downloadHtml(runId: string, projectName: string, sectionNumber: string,
   URL.revokeObjectURL(url);
 }
 
-// Download as PDF using html2pdf.js
-async function downloadPdf(runId: string, projectName: string, sectionNumber: string, sectionTitle: string) {
-  const html = getGeneratedHtml(runId);
-  if (!html) {
-    alert('HTML content not found. Please regenerate the document.');
-    return;
-  }
-
-  // Dynamically import html2pdf.js
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const html2pdf = (await import('html2pdf.js' as any)).default;
-
-  // Create a hidden container for rendering
-  const container = document.createElement('div');
-  container.style.position = 'absolute';
-  container.style.left = '-9999px';
-  container.style.top = '0';
-  container.innerHTML = html;
-  document.body.appendChild(container);
-
-  const filename = `${projectName.replace(/[^a-z0-9]/gi, '_')}_${sectionNumber}_${sectionTitle.replace(/[^a-z0-9]/gi, '_')}.pdf`;
-
-  await html2pdf()
-    .set({
-      margin: [10, 10, 10, 10],
-      filename,
-      image: { type: 'jpeg', quality: 0.98 },
-      html2canvas: { scale: 2, useCORS: true },
-      jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-    } as any)
-    .from(container)
-    .save();
-
-  document.body.removeChild(container);
-}
-
 type Step = 1 | 2 | 3;
 
 const STEPS = [
@@ -110,9 +74,6 @@ export default function GenerationWizard({ sectionId = 'S.7.3', sectionNumber = 
 
   const [includeTrace, setIncludeTrace] = useState(true);
   const [tablePrefix, setTablePrefix] = useState(`${sectionId}-`);
-  const [tracing, setTracing] = useState(false);
-  const [traceStatus, setTraceStatus] = useState<'idle' | 'running' | 'done' | 'failed'>('idle');
-  const [pdfGenerating, setPdfGenerating] = useState(false);
 
   const loadPastRuns = async () => {
     if (!current) return;
@@ -127,7 +88,6 @@ export default function GenerationWizard({ sectionId = 'S.7.3', sectionNumber = 
   const handleGenerate = async () => {
     if (!current) return;
     setGenerating(true);
-    setTraceStatus('idle');
     try {
       // Fetch all project data to send to the generation API
       const [studyData, lotData, conditionData, attrData, docData] = await Promise.all([
@@ -141,12 +101,6 @@ export default function GenerationWizard({ sectionId = 'S.7.3', sectionNumber = 
       // Get document texts from localStorage
       const docTexts = getDocumentTexts();
 
-      const docMappings = docData.items.map((d) => ({
-        filename: d.original_filename,
-        extracted_text: docTexts[d.id] || '',
-        classification: d.classification,
-      }));
-
       const request: GenerateRequest = {
         section: sectionId,
         project: {
@@ -158,43 +112,18 @@ export default function GenerationWizard({ sectionId = 'S.7.3', sectionNumber = 
         lots: lotData.items,
         conditions: conditionData.items,
         attributes: attrData.items,
-        documents: docMappings,
+        documents: docData.items.map((d) => ({
+          filename: d.original_filename,
+          extracted_text: docTexts[d.id] || '',
+          classification: d.classification,
+        })),
       };
 
-      // STEP 1: Generate the document
       const result = await generation.start(request);
       setRun(result);
-      setGenerating(false);
-
-      // STEP 2: Traceability (if enabled and generation succeeded)
-      if (includeTrace && result.status === 'completed' && result.outputs?.html) {
-        setTracing(true);
-        setTraceStatus('running');
-        try {
-          const html = getGeneratedHtml(result.outputs.html);
-          if (html) {
-            const values = traceability.extractTableValues(html);
-            const refs = await traceability.trace(values, docMappings);
-            if (refs.length > 0) {
-              const enrichedHtml = traceability.injectReferences(html, refs);
-              // Update stored HTML with traceability
-              const htmlStorage = JSON.parse(localStorage.getItem('ctd_generated_html') || '{}');
-              htmlStorage[result.outputs.html] = enrichedHtml;
-              localStorage.setItem('ctd_generated_html', JSON.stringify(htmlStorage));
-            }
-            setTraceStatus('done');
-          }
-        } catch {
-          setTraceStatus('failed');
-        } finally {
-          setTracing(false);
-        }
-      }
-
       await loadPastRuns();
     } catch { /* */ } finally {
       setGenerating(false);
-      setTracing(false);
     }
   };
 
@@ -224,57 +153,28 @@ export default function GenerationWizard({ sectionId = 'S.7.3', sectionNumber = 
             <CheckCircle2 size={32} className="text-green-600" />
           </div>
           <h2 className="text-lg font-semibold text-gray-900 mb-1">Document Generated</h2>
-          <p className="text-sm text-gray-500 mb-4">
+          <p className="text-sm text-gray-500 mb-6">
             {sectionNumber} {sectionTitle} — <span className="font-mono text-xs">{run.run_id.slice(0, 8)}</span>
           </p>
 
-          {/* Traceability status */}
-          {tracing && (
-            <div className="mb-4 p-3 rounded-lg bg-amber-50 border border-amber-200 inline-flex items-center gap-2">
-              <Loader2 size={14} className="text-amber-500 animate-spin" />
-              <span className="text-sm text-amber-700">Adding source traceability references...</span>
-            </div>
-          )}
-          {traceStatus === 'done' && (
-            <div className="mb-4 p-3 rounded-lg bg-green-50 border border-green-200 inline-flex items-center gap-2">
-              <Link2 size={14} className="text-green-600" />
-              <span className="text-sm text-green-700">Source traceability references added to document</span>
-            </div>
-          )}
-          {traceStatus === 'failed' && (
-            <div className="mb-4 p-3 rounded-lg bg-red-50 border border-red-200 inline-flex items-center gap-2">
-              <XCircle size={14} className="text-red-500" />
-              <span className="text-sm text-red-700">Traceability failed — document available without references</span>
-            </div>
-          )}
-
-          <div className="flex items-center justify-center gap-3 flex-wrap mb-2">
+          <div className="flex items-center justify-center gap-4 flex-wrap">
             {run.outputs?.html && (
-              <>
-                <button
-                  onClick={async () => {
-                    setPdfGenerating(true);
-                    try {
-                      await downloadPdf(run.outputs!.html!, current?.name || 'Document', sectionNumber, sectionTitle);
-                    } finally {
-                      setPdfGenerating(false);
-                    }
-                  }}
-                  disabled={tracing || pdfGenerating}
-                  className="inline-flex items-center gap-3 bg-primary-600 text-white px-6 py-3 rounded-lg text-sm font-medium hover:bg-primary-700 shadow-sm transition-colors disabled:opacity-50"
-                >
-                  {pdfGenerating ? <Loader2 size={18} className="animate-spin" /> : <FileDown size={18} />}
-                  {pdfGenerating ? 'Generating PDF...' : 'Download PDF'}
-                </button>
-                <button
-                  onClick={() => downloadHtml(run.outputs!.html!, current?.name || 'Document', sectionNumber, sectionTitle)}
-                  disabled={tracing}
-                  className="inline-flex items-center gap-2 text-sm text-gray-600 hover:text-gray-800 border border-gray-200 rounded-lg px-4 py-3 hover:bg-gray-50 transition-colors disabled:opacity-50"
-                >
-                  <Download size={16} />
-                  Download HTML
-                </button>
-              </>
+              <button
+                onClick={() => downloadHtml(run.outputs!.html!, current?.name || 'Document', sectionNumber, sectionTitle)}
+                className="inline-flex items-center gap-3 bg-primary-600 text-white px-6 py-3 rounded-lg text-sm font-medium hover:bg-primary-700 shadow-sm transition-colors"
+              >
+                <Download size={18} />
+                Download HTML
+              </button>
+            )}
+            {run.outputs?.traceability_json && (
+              <button
+                onClick={() => alert('Traceability report generation coming soon')}
+                className="inline-flex items-center gap-2 text-sm text-gray-600 hover:text-gray-800 border border-gray-200 rounded-lg px-4 py-3 hover:bg-gray-50 transition-colors"
+              >
+                <FileText size={16} />
+                Traceability
+              </button>
             )}
           </div>
 
@@ -391,20 +291,9 @@ export default function GenerationWizard({ sectionId = 'S.7.3', sectionNumber = 
             </dl>
 
             {generating && (
-              <div className="mt-4 space-y-3">
-                <div className="p-4 rounded-md bg-blue-50 border border-blue-200 flex items-center gap-3">
-                  <Loader2 size={18} className="text-blue-500 animate-spin" />
-                  <div>
-                    <p className="text-sm text-blue-800 font-medium">Step 1: Generating document with Claude Opus...</p>
-                    <p className="text-xs text-blue-600 mt-0.5">This may take a moment</p>
-                  </div>
-                </div>
-                {includeTrace && (
-                  <div className="p-3 rounded-md bg-gray-50 border border-gray-200 flex items-center gap-3 opacity-50">
-                    <Link2 size={16} className="text-gray-400" />
-                    <p className="text-sm text-gray-500">Step 2: Source traceability (after document is ready)</p>
-                  </div>
-                )}
+              <div className="mt-4 p-4 rounded-md bg-blue-50 border border-blue-200 flex items-center gap-3">
+                <Loader2 size={18} className="text-blue-500 animate-spin" />
+                <p className="text-sm text-blue-800 font-medium">Generating with Claude Opus — this may take a moment...</p>
               </div>
             )}
           </div>
