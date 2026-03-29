@@ -141,10 +141,7 @@ export default function GenerationWizard({ sectionId = 'S.7.3', sectionNumber = 
       // Get document texts from localStorage
       const docTexts = getDocumentTexts();
 
-      // Exclude Veeva mock documents — only use manually uploaded documents
-      const uploadedDocs = docData.items.filter((d) => d.source !== 'veeva');
-
-      const docMappings = uploadedDocs.map((d) => ({
+      const docMappings = docData.items.map((d) => ({
         filename: d.original_filename,
         extracted_text: docTexts[d.id] || '',
         classification: d.classification,

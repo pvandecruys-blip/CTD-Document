@@ -67,7 +67,6 @@ export interface DocumentFile {
   file_size_bytes: number;
   uploaded_at: string;
   notes?: string;
-  source?: 'upload' | 'veeva';
 }
 
 export interface SourceAnchor {
