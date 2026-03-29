@@ -444,7 +444,7 @@ SECTION_PROMPTS = {
 
 API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 BASE_URL = os.environ.get("ANTHROPIC_BASE_URL", "https://genai-sharedservice-emea.pwc.com")
-MODEL = os.environ.get("ANTHROPIC_MODEL", "vertex_ai.anthropic.claude-opus-4-5")
+MODEL = os.environ.get("ANTHROPIC_MODEL", "vertex_ai.anthropic.claude-sonnet-4-5")
 TEMPERATURE = 0.0
 MAX_TOKENS = 64000  # Allow very large outputs for complete stability tables
 
