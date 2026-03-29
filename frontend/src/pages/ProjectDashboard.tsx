@@ -15,6 +15,10 @@ import {
   BookOpen,
   Microscope,
   Users,
+  Download,
+  Loader2,
+  FileStack,
+  AlertCircle,
 } from 'lucide-react';
 import { CTD_STRUCTURE, getLeafSections, getGenerableSections, type CTDSection } from '../config/ctdStructure';
 import { generation } from '../api/client';
@@ -229,6 +233,171 @@ const CTD_MODULES = [
   },
 ];
 
+function BuildFinalCTD({ projectName, completedSections, generableCount, runs }: {
+  projectName: string;
+  completedSections: Set<string>;
+  generableCount: number;
+  runs: GenerationRun[];
+}) {
+  const [building, setBuilding] = useState(false);
+  const completedCount = completedSections.size;
+  const allGenerable = getGenerableSections();
+
+  const handleBuild = async () => {
+    setBuilding(true);
+    try {
+      // Collect generated HTML from all completed sections (in CTD order)
+      const htmlStorage = JSON.parse(localStorage.getItem('ctd_generated_html') || '{}');
+      const sections: { number: string; title: string; html: string }[] = [];
+
+      for (const section of allGenerable) {
+        if (!completedSections.has(section.id)) continue;
+
+        // Find the most recent completed run for this section
+        const sectionRun = runs
+          .filter((r) => r.section_id === section.id && r.status === 'completed' && r.outputs?.html)
+          .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0];
+
+        if (sectionRun?.outputs?.html) {
+          const html = htmlStorage[sectionRun.outputs.html];
+          if (html) {
+            sections.push({ number: section.number, title: section.title, html });
+          }
+        }
+      }
+
+      if (sections.length === 0) {
+        alert('No generated sections found. Please generate at least one section first.');
+        return;
+      }
+
+      // Build combined HTML document
+      const now = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+      const combinedHtml = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>CTD Module 3 – ${projectName}</title>
+  <style>
+    body { font-family: 'Times New Roman', Times, serif; max-width: 210mm; margin: 0 auto; padding: 40px 30px; color: #1a1a1a; line-height: 1.6; }
+    .cover-page { text-align: center; padding: 80px 0 60px; page-break-after: always; }
+    .cover-page h1 { font-size: 28px; font-weight: bold; margin-bottom: 8px; }
+    .cover-page h2 { font-size: 20px; font-weight: normal; color: #444; margin-bottom: 40px; }
+    .cover-page .meta { font-size: 14px; color: #666; margin-top: 60px; }
+    .cover-page .meta p { margin: 4px 0; }
+    .toc { page-break-after: always; }
+    .toc h2 { font-size: 18px; border-bottom: 2px solid #1a1a1a; padding-bottom: 6px; margin-bottom: 16px; }
+    .toc-entry { display: flex; justify-content: space-between; padding: 4px 0; font-size: 13px; border-bottom: 1px dotted #ccc; }
+    .toc-entry .toc-number { font-family: monospace; color: #555; min-width: 80px; }
+    .section-divider { page-break-before: always; border-top: 3px solid #1a1a1a; padding-top: 20px; margin-top: 40px; }
+    .section-divider:first-of-type { page-break-before: auto; margin-top: 0; }
+    .section-header { font-size: 11px; color: #888; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 16px; }
+    table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 11px; }
+    th, td { border: 1px solid #999; padding: 6px 8px; text-align: left; }
+    th { background: #f0f0f0; font-weight: bold; }
+    h1, h2, h3, h4 { color: #1a1a1a; }
+    .footer { text-align: center; font-size: 10px; color: #999; margin-top: 60px; padding-top: 20px; border-top: 1px solid #ddd; }
+  </style>
+</head>
+<body>
+  <!-- Cover Page -->
+  <div class="cover-page">
+    <h1>Common Technical Document</h1>
+    <h2>Module 3 – Quality</h2>
+    <p style="font-size: 18px; color: #333; margin-top: 30px;">${projectName}</p>
+    <div class="meta">
+      <p>Generated: ${now}</p>
+      <p>Sections included: ${sections.length} of ${allGenerable.length}</p>
+      <p>ICH M4Q(R2) Format</p>
+    </div>
+  </div>
+
+  <!-- Table of Contents -->
+  <div class="toc">
+    <h2>Table of Contents</h2>
+    ${sections.map((s) => `<div class="toc-entry"><span><span class="toc-number">${s.number}</span> ${s.title}</span></div>`).join('\n    ')}
+  </div>
+
+  <!-- Sections -->
+  ${sections.map((s) => `
+  <div class="section-divider">
+    <div class="section-header">${s.number} – ${s.title}</div>
+    ${s.html}
+  </div>`).join('\n')}
+
+  <div class="footer">
+    CTD Module 3 – ${projectName} | Generated ${now} | Confidential
+  </div>
+</body>
+</html>`;
+
+      // Download
+      const blob = new Blob([combinedHtml], { type: 'text/html' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${projectName.replace(/[^a-z0-9]/gi, '_')}_CTD_Module3.html`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } finally {
+      setBuilding(false);
+    }
+  };
+
+  return (
+    <div className="bg-white rounded-xl border-2 border-dashed border-gray-300 p-8">
+      <div className="flex items-start gap-5">
+        <div className="p-4 bg-primary-50 rounded-xl flex-shrink-0">
+          <FileStack size={28} className="text-primary-600" />
+        </div>
+        <div className="flex-1">
+          <h3 className="text-lg font-bold text-gray-900">Build Final CTD Document</h3>
+          <p className="text-sm text-gray-500 mt-1">
+            Compile all generated sections into a single CTD Module 3 document with cover page and table of contents.
+          </p>
+
+          {/* Status */}
+          <div className="mt-4 flex items-center gap-4">
+            <div className="flex items-center gap-2 text-sm">
+              <CheckCircle2 size={14} className="text-green-500" />
+              <span className="text-gray-700">
+                <span className="font-semibold">{completedCount}</span> of {generableCount} sections generated
+              </span>
+            </div>
+            {completedCount < generableCount && (
+              <div className="flex items-center gap-1.5 text-xs text-amber-600">
+                <AlertCircle size={12} />
+                {generableCount - completedCount} sections remaining
+              </div>
+            )}
+          </div>
+
+          {/* Button */}
+          <div className="mt-5 flex items-center gap-3">
+            <button
+              onClick={handleBuild}
+              disabled={completedCount === 0 || building}
+              className="inline-flex items-center gap-2 bg-primary-600 text-white px-5 py-2.5 rounded-lg text-sm font-medium hover:bg-primary-700 shadow-sm transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {building ? (
+                <Loader2 size={16} className="animate-spin" />
+              ) : (
+                <Download size={16} />
+              )}
+              {building ? 'Building...' : 'Build & Download CTD'}
+            </button>
+            {completedCount === 0 && (
+              <span className="text-xs text-gray-400">Generate at least one section first</span>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function ProjectDashboard() {
   const navigate = useNavigate();
   const { projectId } = useParams<{ projectId: string }>();
@@ -378,6 +547,14 @@ export default function ProjectDashboard() {
                 ))}
               </div>
             </div>
+
+            {/* Build Final CTD Document */}
+            <BuildFinalCTD
+              projectName={current.name}
+              completedSections={completedSections}
+              generableCount={generableCount}
+              runs={runs}
+            />
           </>
         )}
 
