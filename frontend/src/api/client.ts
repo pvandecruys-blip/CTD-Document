@@ -160,7 +160,7 @@ export const documents = {
     return { items };
   },
 
-  upload: async (projectId: string, filename: string, extractedText: string, classification?: string) => {
+  upload: async (projectId: string, filename: string, extractedText: string, classification?: string, source?: 'upload' | 'veeva') => {
     await delay();
     const allDocs = getStorage<Record<string, DocumentFile[]>>(STORAGE_KEYS.DOCUMENTS, {});
     if (!allDocs[projectId]) allDocs[projectId] = [];
@@ -176,6 +176,7 @@ export const documents = {
       checksum_sha256: 'local-storage',
       file_size_bytes: extractedText.length,
       uploaded_at: new Date().toISOString(),
+      source: source || 'upload',
     };
     allDocs[projectId].push(newDoc);
     setStorage(STORAGE_KEYS.DOCUMENTS, allDocs);
@@ -1081,7 +1082,7 @@ export const veeva = {
 
     // Create/update a document in the project
     const mockText = `[Synced from Veeva Vault]\nDocument: ${doc.vault_name}\nVersion: ${doc.current_version}\nDocument Number: ${doc.document_number}\nLast Modified: ${doc.last_modified}\n\nThis document was synced from Veeva Vault. In a production environment, the full document content would be extracted here.`;
-    await documents.upload(projectId, `${doc.document_number}_v${doc.current_version}.pdf`, mockText, doc.classification);
+    await documents.upload(projectId, `${doc.document_number}_v${doc.current_version}.pdf`, mockText, doc.classification, 'veeva');
 
     // Dismiss related notification
     const allNotifs = getStorage<Record<string, VeevaNotification[]>>(VEEVA_NOTIFICATIONS_KEY, {});
@@ -1104,7 +1105,7 @@ export const veeva = {
       doc.status = 'steady_state';
 
       const mockText = `[Synced from Veeva Vault]\nDocument: ${doc.vault_name}\nVersion: ${doc.current_version}\nDocument Number: ${doc.document_number}\nLast Modified: ${doc.last_modified}\n\nThis document was synced from Veeva Vault.`;
-      await documents.upload(projectId, `${doc.document_number}_v${doc.current_version}.pdf`, mockText, doc.classification);
+      await documents.upload(projectId, `${doc.document_number}_v${doc.current_version}.pdf`, mockText, doc.classification, 'veeva');
     }
 
     setStorage(VEEVA_VAULT_KEY, allVaults);

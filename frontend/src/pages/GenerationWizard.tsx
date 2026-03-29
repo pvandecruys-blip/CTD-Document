@@ -112,7 +112,7 @@ export default function GenerationWizard({ sectionId = 'S.7.3', sectionNumber = 
         lots: lotData.items,
         conditions: conditionData.items,
         attributes: attrData.items,
-        documents: docData.items.map((d) => ({
+        documents: docData.items.filter((d) => d.source !== 'veeva').map((d) => ({
           filename: d.original_filename,
           extracted_text: docTexts[d.id] || '',
           classification: d.classification,
