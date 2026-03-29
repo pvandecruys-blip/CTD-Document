@@ -790,6 +790,146 @@ export const generation = {
   },
 };
 
+// ── Traceability ────────────────────────────────────────────────────
+export interface TraceReference {
+  value: string;
+  found: boolean;
+  source_filename: string | null;
+  source_context: string | null;
+  confidence: 'high' | 'medium' | 'low';
+}
+
+export const traceability = {
+  /**
+   * Call the /api/trace endpoint to map table values to source documents.
+   */
+  trace: async (values: string[], documents: { filename: string; extracted_text: string; classification: string }[]): Promise<TraceReference[]> => {
+    try {
+      const response = await fetch(`${API_BASE}/api/trace`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ values, documents }),
+      });
+
+      if (!response.ok) {
+        console.error('Trace API failed:', response.status);
+        return [];
+      }
+
+      const result = await response.json();
+      return result.references || [];
+    } catch (error) {
+      console.error('Trace API error:', error);
+      return [];
+    }
+  },
+
+  /**
+   * Extract unique table cell values from generated HTML string.
+   */
+  extractTableValues: (html: string): string[] => {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(html, 'text/html');
+    const cells = doc.querySelectorAll('td');
+    const values = new Set<string>();
+
+    cells.forEach((cell) => {
+      const text = cell.textContent?.trim() || '';
+      // Skip empty, dashes, and very short values
+      if (text && text !== '—' && text !== '-' && text.length >= 2) {
+        values.add(text);
+      }
+    });
+
+    return Array.from(values);
+  },
+
+  /**
+   * Inject traceability references into the HTML document.
+   * Adds superscript [1], [2] etc. and a Source Traceability appendix.
+   */
+  injectReferences: (html: string, references: TraceReference[]): string => {
+    const found = references.filter((r) => r.found && r.source_filename);
+    if (found.length === 0) return html;
+
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(html, 'text/html');
+
+    // Build a map: value → reference index
+    const refMap = new Map<string, number>();
+    found.forEach((ref, i) => {
+      if (!refMap.has(ref.value)) {
+        refMap.set(ref.value, i + 1);
+      }
+    });
+
+    // Add superscripts to matching table cells
+    const cells = doc.querySelectorAll('td');
+    cells.forEach((cell) => {
+      const text = cell.textContent?.trim() || '';
+      const refIdx = refMap.get(text);
+      if (refIdx !== undefined) {
+        const sup = doc.createElement('sup');
+        sup.style.cssText = 'color: #0066cc; cursor: help; font-size: 0.7em; margin-left: 2px;';
+        sup.title = `Source: ${found[refIdx - 1].source_filename}`;
+
+        const link = doc.createElement('a');
+        link.href = `#ref-${refIdx}`;
+        link.style.cssText = 'color: #0066cc; text-decoration: none;';
+        link.textContent = `[${refIdx}]`;
+        sup.appendChild(link);
+
+        cell.appendChild(sup);
+      }
+    });
+
+    // Create the appendix
+    const appendix = doc.createElement('div');
+    appendix.className = 'page-break';
+    appendix.style.cssText = 'page-break-before: always; margin-top: 40px;';
+    appendix.innerHTML = `
+      <h2 style="color: #003366; font-family: Arial, sans-serif; font-size: 16pt; margin-bottom: 20px; border-bottom: 2px solid #003366; padding-bottom: 8px;">
+        SOURCE TRACEABILITY
+      </h2>
+      <p style="font-family: Arial, sans-serif; font-size: 10pt; color: #666; margin-bottom: 20px;">
+        The following table maps data values in this document to their original source documents.
+      </p>
+      <table style="width: 100%; border-collapse: collapse; font-family: Arial, sans-serif; font-size: 10pt;">
+        <thead>
+          <tr style="background: #003366; color: white;">
+            <th style="padding: 8px 10px; text-align: left; border: 1px solid #999;">Ref</th>
+            <th style="padding: 8px 10px; text-align: left; border: 1px solid #999;">Value</th>
+            <th style="padding: 8px 10px; text-align: left; border: 1px solid #999;">Source Document</th>
+            <th style="padding: 8px 10px; text-align: left; border: 1px solid #999;">Context</th>
+            <th style="padding: 8px 10px; text-align: center; border: 1px solid #999;">Confidence</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${found.map((ref, i) => {
+            const bg = i % 2 === 0 ? '#ffffff' : '#f9f9f9';
+            const confColor = ref.confidence === 'high' ? '#16a34a' : ref.confidence === 'medium' ? '#d97706' : '#dc2626';
+            return `
+              <tr id="ref-${i + 1}" style="background: ${bg};">
+                <td style="padding: 6px 10px; border: 1px solid #ddd; font-weight: bold; color: #0066cc;">[${i + 1}]</td>
+                <td style="padding: 6px 10px; border: 1px solid #ddd; font-family: monospace;">${ref.value}</td>
+                <td style="padding: 6px 10px; border: 1px solid #ddd;">${ref.source_filename || '—'}</td>
+                <td style="padding: 6px 10px; border: 1px solid #ddd; font-size: 9pt; color: #555;">${ref.source_context || '—'}</td>
+                <td style="padding: 6px 10px; border: 1px solid #ddd; text-align: center;">
+                  <span style="color: ${confColor}; font-weight: bold; text-transform: uppercase; font-size: 9pt;">${ref.confidence}</span>
+                </td>
+              </tr>
+            `;
+          }).join('')}
+        </tbody>
+      </table>
+    `;
+
+    doc.body.appendChild(appendix);
+
+    return '<!DOCTYPE html>\n' + doc.documentElement.outerHTML;
+  },
+};
+
 // ── Regulatory ──────────────────────────────────────────────────────
 export const regulatory = {
   guidelines: {
