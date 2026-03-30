@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ChevronRight, ChevronLeft, Wand2, Check, Download, FileText, Clock, CheckCircle2, XCircle, Loader2 } from 'lucide-react';
+import { ChevronRight, ChevronLeft, Wand2, Check, Download, Clock, CheckCircle2, XCircle, Loader2, Link2 } from 'lucide-react';
 import type { GenerationRun, GenerationStatus } from '../types';
 import { useProject } from '../context/ProjectContext';
 import { generation, studies, lots, conditions, attributes, documents, type GenerateRequest } from '../api/client';
@@ -44,6 +44,100 @@ function downloadHtml(runId: string, projectName: string, sectionNumber: string,
   URL.revokeObjectURL(url);
 }
 
+// ── Client-side source traceability (no API call) ───────────────────
+interface SourceRef {
+  index: number;
+  value: string;
+  filename: string;
+  snippet: string;
+}
+
+function addClientTraceability(
+  html: string,
+  docMappings: { filename: string; extracted_text: string }[]
+): { html: string; refs: SourceRef[] } {
+  // 1. Parse table cell values from the HTML
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(html, 'text/html');
+  const cells = doc.querySelectorAll('td');
+  const refs: SourceRef[] = [];
+  const seen = new Set<string>();
+  let refIndex = 1;
+
+  // Build searchable text per document (lowercase for matching)
+  const docTexts = docMappings
+    .filter((d) => d.extracted_text.trim().length > 0)
+    .map((d) => ({ filename: d.filename, text: d.extracted_text, lower: d.extracted_text.toLowerCase() }));
+
+  if (docTexts.length === 0) return { html, refs: [] };
+
+  cells.forEach((cell) => {
+    const raw = (cell.textContent || '').trim();
+    if (!raw || raw.length < 2 || raw.length > 200) return;
+    if (seen.has(raw)) return;
+
+    // Try to find this value in source documents
+    const searchVal = raw.toLowerCase();
+    for (const d of docTexts) {
+      const pos = d.lower.indexOf(searchVal);
+      if (pos === -1) continue;
+
+      // Found a match — extract a short snippet around the value
+      const start = Math.max(0, pos - 40);
+      const end = Math.min(d.text.length, pos + searchVal.length + 40);
+      let snippet = d.text.slice(start, end).replace(/\s+/g, ' ').trim();
+      if (start > 0) snippet = '...' + snippet;
+      if (end < d.text.length) snippet = snippet + '...';
+
+      seen.add(raw);
+      refs.push({ index: refIndex, value: raw, filename: d.filename, snippet });
+
+      // Add superscript to the cell
+      const sup = doc.createElement('sup');
+      sup.textContent = `[${refIndex}]`;
+      sup.style.cssText = 'color:#2563eb;font-size:9px;cursor:help;margin-left:2px;';
+      sup.title = `Source: ${d.filename}`;
+      cell.appendChild(sup);
+
+      refIndex++;
+      break; // One match per cell value is enough
+    }
+  });
+
+  if (refs.length === 0) return { html, refs: [] };
+
+  // 2. Add source appendix at the bottom
+  const appendix = doc.createElement('div');
+  appendix.style.cssText = 'margin-top:40px;padding-top:20px;border-top:2px solid #1a1a1a;';
+  appendix.innerHTML = `
+    <h3 style="font-size:14px;font-weight:bold;margin-bottom:12px;">Source References</h3>
+    <table style="border-collapse:collapse;width:100%;font-size:10px;">
+      <thead>
+        <tr style="background:#f3f4f6;">
+          <th style="border:1px solid #d1d5db;padding:4px 8px;width:30px;">Ref</th>
+          <th style="border:1px solid #d1d5db;padding:4px 8px;">Value</th>
+          <th style="border:1px solid #d1d5db;padding:4px 8px;">Source Document</th>
+          <th style="border:1px solid #d1d5db;padding:4px 8px;">Context</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${refs.map((r) => `
+          <tr>
+            <td style="border:1px solid #d1d5db;padding:4px 8px;text-align:center;color:#2563eb;font-weight:bold;">[${r.index}]</td>
+            <td style="border:1px solid #d1d5db;padding:4px 8px;">${r.value}</td>
+            <td style="border:1px solid #d1d5db;padding:4px 8px;font-style:italic;">${r.filename}</td>
+            <td style="border:1px solid #d1d5db;padding:4px 8px;color:#6b7280;font-size:9px;">${r.snippet}</td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+    <p style="font-size:9px;color:#9ca3af;margin-top:8px;">${refs.length} reference(s) found across ${new Set(refs.map(r => r.filename)).size} source document(s).</p>
+  `;
+  doc.body.appendChild(appendix);
+
+  return { html: doc.body.innerHTML, refs };
+}
+
 type Step = 1 | 2 | 3;
 
 const STEPS = [
@@ -74,6 +168,7 @@ export default function GenerationWizard({ sectionId = 'S.7.3', sectionNumber = 
 
   const [includeTrace, setIncludeTrace] = useState(true);
   const [tablePrefix, setTablePrefix] = useState(`${sectionId}-`);
+  const [traceCount, setTraceCount] = useState(0);
 
   const loadPastRuns = async () => {
     if (!current) return;
@@ -120,6 +215,25 @@ export default function GenerationWizard({ sectionId = 'S.7.3', sectionNumber = 
       };
 
       const result = await generation.start(request);
+
+      // Client-side traceability (no API call — instant)
+      if (includeTrace && result.status === 'completed' && result.outputs?.html) {
+        const storedHtml = getGeneratedHtml(result.outputs.html);
+        if (storedHtml) {
+          const uploadedDocs = docData.items
+            .filter((d) => d.source !== 'veeva')
+            .map((d) => ({ filename: d.original_filename, extracted_text: docTexts[d.id] || '' }));
+          const { html: tracedHtml, refs } = addClientTraceability(storedHtml, uploadedDocs);
+          if (refs.length > 0) {
+            // Update stored HTML with traced version
+            const htmlStorage = JSON.parse(localStorage.getItem('ctd_generated_html') || '{}');
+            htmlStorage[result.outputs.html] = tracedHtml;
+            localStorage.setItem('ctd_generated_html', JSON.stringify(htmlStorage));
+            setTraceCount(refs.length);
+          }
+        }
+      }
+
       setRun(result);
       await loadPastRuns();
     } catch { /* */ } finally {
@@ -153,9 +267,16 @@ export default function GenerationWizard({ sectionId = 'S.7.3', sectionNumber = 
             <CheckCircle2 size={32} className="text-green-600" />
           </div>
           <h2 className="text-lg font-semibold text-gray-900 mb-1">Document Generated</h2>
-          <p className="text-sm text-gray-500 mb-6">
+          <p className="text-sm text-gray-500 mb-4">
             {sectionNumber} {sectionTitle} — <span className="font-mono text-xs">{run.run_id.slice(0, 8)}</span>
           </p>
+
+          {traceCount > 0 && (
+            <div className="mb-4 p-3 rounded-lg bg-blue-50 border border-blue-200 inline-flex items-center gap-2">
+              <Link2 size={14} className="text-blue-600" />
+              <span className="text-sm text-blue-700">{traceCount} source reference{traceCount > 1 ? 's' : ''} added to document</span>
+            </div>
+          )}
 
           <div className="flex items-center justify-center gap-4 flex-wrap">
             {run.outputs?.html && (
@@ -165,15 +286,6 @@ export default function GenerationWizard({ sectionId = 'S.7.3', sectionNumber = 
               >
                 <Download size={18} />
                 Download HTML
-              </button>
-            )}
-            {run.outputs?.traceability_json && (
-              <button
-                onClick={() => alert('Traceability report generation coming soon')}
-                className="inline-flex items-center gap-2 text-sm text-gray-600 hover:text-gray-800 border border-gray-200 rounded-lg px-4 py-3 hover:bg-gray-50 transition-colors"
-              >
-                <FileText size={16} />
-                Traceability
               </button>
             )}
           </div>
