@@ -27,10 +27,32 @@ function getGeneratedHtml(runId: string): string | null {
 
 // Download HTML file
 function downloadHtml(runId: string, projectName: string, sectionNumber: string, sectionTitle: string) {
-  const html = getGeneratedHtml(runId);
+  let html = getGeneratedHtml(runId);
   if (!html) {
     alert('HTML content not found. Please regenerate the document.');
     return;
+  }
+
+  // If stored HTML is just body content (no full document wrapper), wrap it
+  const trimmed = html.trim().toLowerCase();
+  if (!trimmed.startsWith('<!doctype') && !trimmed.startsWith('<html')) {
+    html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>${sectionNumber} – ${sectionTitle}</title>
+  <style>
+    body { font-family: 'Times New Roman', Times, serif; max-width: 210mm; margin: 0 auto; padding: 40px 30px; color: #1a1a1a; line-height: 1.6; }
+    table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 11px; }
+    th, td { border: 1px solid #999; padding: 6px 8px; text-align: left; }
+    th { background: #f0f0f0; font-weight: bold; }
+    h1, h2, h3, h4 { color: #1a1a1a; }
+  </style>
+</head>
+<body>
+${html}
+</body>
+</html>`;
   }
 
   const blob = new Blob([html], { type: 'text/html' });
@@ -135,7 +157,13 @@ function addClientTraceability(
   `;
   doc.body.appendChild(appendix);
 
-  return { html: doc.body.innerHTML, refs };
+  // Preserve the full document (including <head>/<style>) if the original had it
+  const serializer = new XMLSerializer();
+  const fullHtml = html.trim().toLowerCase().startsWith('<!doctype') || html.trim().toLowerCase().startsWith('<html')
+    ? `<!DOCTYPE html>\n${serializer.serializeToString(doc.documentElement)}`
+    : doc.body.innerHTML;
+
+  return { html: fullHtml, refs };
 }
 
 type Step = 1 | 2 | 3;
@@ -480,7 +508,7 @@ export default function GenerationWizard({ sectionId = 'S.7.3', sectionNumber = 
           </button>
         ) : (
           <button onClick={handleGenerate} disabled={generating} className="inline-flex items-center gap-2 bg-green-600 text-white px-5 py-2 rounded-md text-sm font-medium hover:bg-green-700 disabled:opacity-50">
-            <Wand2 size={16} /> {generating ? 'Generating...' : 'Generate {sectionNumber}'}
+            <Wand2 size={16} /> {generating ? 'Generating...' : `Generate ${sectionNumber}`}
           </button>
         )}
       </div>
