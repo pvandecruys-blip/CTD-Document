@@ -234,6 +234,12 @@ const CTD_MODULES = [
   },
 ];
 
+// Extract body content from a full HTML document (strips <html>, <head>, <style>, etc.)
+function extractBodyContent(html: string): string {
+  const bodyMatch = html.match(/<body[^>]*>([\s\S]*)<\/body>/i);
+  return bodyMatch ? bodyMatch[1].trim() : html;
+}
+
 function BuildFinalCTD({ projectName, completedSections, generableCount, runs }: {
   projectName: string;
   completedSections: Set<string>;
@@ -260,9 +266,10 @@ function BuildFinalCTD({ projectName, completedSections, generableCount, runs }:
           .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0];
 
         if (sectionRun?.outputs?.html) {
-          const html = htmlStorage[sectionRun.outputs.html];
-          if (html) {
-            sections.push({ number: section.number, title: section.title, html });
+          const rawHtml = htmlStorage[sectionRun.outputs.html];
+          if (rawHtml) {
+            // Extract just the body content so we can embed it in the combined document
+            sections.push({ number: section.number, title: section.title, html: extractBodyContent(rawHtml) });
           }
         }
       }
@@ -272,62 +279,123 @@ function BuildFinalCTD({ projectName, completedSections, generableCount, runs }:
         return;
       }
 
-      // Build combined HTML document
+      // Build combined CTD submission package
       const now = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
       const combinedHtml = `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>CTD Module 3 – ${projectName}</title>
+  <title>CTD Submission Package – ${projectName}</title>
   <style>
-    body { font-family: 'Times New Roman', Times, serif; max-width: 210mm; margin: 0 auto; padding: 40px 30px; color: #1a1a1a; line-height: 1.6; }
-    .cover-page { text-align: center; padding: 80px 0 60px; page-break-after: always; }
-    .cover-page h1 { font-size: 28px; font-weight: bold; margin-bottom: 8px; }
-    .cover-page h2 { font-size: 20px; font-weight: normal; color: #444; margin-bottom: 40px; }
-    .cover-page .meta { font-size: 14px; color: #666; margin-top: 60px; }
+    @page { size: A4 portrait; margin: 2.54cm; }
+    body { font-family: Arial, Helvetica, sans-serif; max-width: 210mm; margin: 0 auto; padding: 40px 30px; color: #333; line-height: 1.6; font-size: 11pt; }
+
+    /* Cover page */
+    .cover-page { text-align: center; padding: 60px 0 40px; page-break-after: always; }
+    .cover-page .logo { font-size: 12px; text-transform: uppercase; letter-spacing: 3px; color: #003366; margin-bottom: 60px; }
+    .cover-page h1 { font-size: 32px; font-weight: bold; color: #003366; margin-bottom: 4px; }
+    .cover-page h2 { font-size: 22px; font-weight: normal; color: #555; margin-bottom: 12px; }
+    .cover-page .product-name { font-size: 20px; color: #003366; font-weight: bold; margin-top: 40px; padding: 12px 24px; border: 2px solid #003366; display: inline-block; }
+    .cover-page .meta { font-size: 12px; color: #666; margin-top: 60px; }
     .cover-page .meta p { margin: 4px 0; }
+    .cover-page .meta strong { color: #333; }
+
+    /* Module overview */
+    .module-overview { page-break-after: always; }
+    .module-overview h2 { font-size: 18px; color: #003366; border-bottom: 2px solid #003366; padding-bottom: 6px; margin-bottom: 20px; }
+    .module-box { border: 1px solid #ddd; border-radius: 4px; padding: 12px 16px; margin-bottom: 10px; display: flex; align-items: center; gap: 12px; }
+    .module-box.active { border-color: #003366; background: #f0f4ff; }
+    .module-box.placeholder { opacity: 0.5; }
+    .module-num { font-size: 14px; font-weight: bold; color: #003366; min-width: 80px; }
+    .module-title { font-size: 13px; color: #333; }
+    .module-badge { font-size: 10px; padding: 2px 8px; border-radius: 10px; font-weight: bold; margin-left: auto; }
+    .badge-included { background: #d1fae5; color: #065f46; }
+    .badge-pending { background: #fef3c7; color: #92400e; }
+
+    /* Table of Contents */
     .toc { page-break-after: always; }
-    .toc h2 { font-size: 18px; border-bottom: 2px solid #1a1a1a; padding-bottom: 6px; margin-bottom: 16px; }
-    .toc-entry { display: flex; justify-content: space-between; padding: 4px 0; font-size: 13px; border-bottom: 1px dotted #ccc; }
-    .toc-entry .toc-number { font-family: monospace; color: #555; min-width: 80px; }
-    .section-divider { page-break-before: always; border-top: 3px solid #1a1a1a; padding-top: 20px; margin-top: 40px; }
+    .toc h2 { font-size: 18px; color: #003366; border-bottom: 2px solid #003366; padding-bottom: 6px; margin-bottom: 16px; }
+    .toc-entry { display: flex; justify-content: space-between; padding: 5px 0; font-size: 12px; border-bottom: 1px dotted #ccc; }
+    .toc-number { font-family: 'Courier New', monospace; color: #003366; min-width: 90px; font-weight: bold; }
+
+    /* Section dividers */
+    .section-divider { page-break-before: always; margin-top: 40px; }
     .section-divider:first-of-type { page-break-before: auto; margin-top: 0; }
-    .section-header { font-size: 11px; color: #888; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 16px; }
-    table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 11px; }
-    th, td { border: 1px solid #999; padding: 6px 8px; text-align: left; }
-    th { background: #f0f0f0; font-weight: bold; }
-    h1, h2, h3, h4 { color: #1a1a1a; }
-    .footer { text-align: center; font-size: 10px; color: #999; margin-top: 60px; padding-top: 20px; border-top: 1px solid #ddd; }
+    .section-banner { background: #003366; color: white; padding: 10px 16px; font-size: 12px; font-weight: bold; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 24px; }
+
+    /* Tables (base styles, individual sections may override with inline styles) */
+    table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 10pt; }
+    th, td { border: 1px solid #999; padding: 6px 10px; text-align: left; }
+    th { background: #003366; color: white; font-weight: bold; }
+    tr:nth-child(even) { background: #f9f9f9; }
+
+    /* General */
+    h1, h2, h3, h4 { color: #003366; }
+    a { color: #0066cc; text-decoration: underline; }
+    .footer { text-align: center; font-size: 9px; color: #999; margin-top: 60px; padding-top: 20px; border-top: 1px solid #ddd; }
   </style>
 </head>
 <body>
   <!-- Cover Page -->
   <div class="cover-page">
-    <h1>Common Technical Document</h1>
-    <h2>Module 3 – Quality</h2>
-    <p style="font-size: 18px; color: #333; margin-top: 30px;">${projectName}</p>
+    <div class="logo">Common Technical Document</div>
+    <h1>CTD Submission Package</h1>
+    <h2>ICH M4 Quality Documentation</h2>
+    <div class="product-name">${projectName}</div>
     <div class="meta">
-      <p>Generated: ${now}</p>
-      <p>Sections included: ${sections.length} of ${allGenerable.length}</p>
-      <p>ICH M4Q(R2) Format</p>
+      <p><strong>Compilation Date:</strong> ${now}</p>
+      <p><strong>Modules Included:</strong> Module 3 – Quality (CMC)</p>
+      <p><strong>Sections Compiled:</strong> ${sections.length} of ${allGenerable.length}</p>
+      <p><strong>Format:</strong> ICH M4Q(R2) / eCTD</p>
+      <p style="margin-top: 20px; font-style: italic;">CONFIDENTIAL</p>
+    </div>
+  </div>
+
+  <!-- Module Overview -->
+  <div class="module-overview">
+    <h2>Module Overview</h2>
+    <div class="module-box placeholder">
+      <span class="module-num">Module 1</span>
+      <span class="module-title">Administrative Information and Prescribing Information</span>
+      <span class="module-badge badge-pending">Pending</span>
+    </div>
+    <div class="module-box placeholder">
+      <span class="module-num">Module 2</span>
+      <span class="module-title">Common Technical Document Summaries</span>
+      <span class="module-badge badge-pending">Pending</span>
+    </div>
+    <div class="module-box active">
+      <span class="module-num">Module 3</span>
+      <span class="module-title">Quality (CMC) — ${sections.length} sections included</span>
+      <span class="module-badge badge-included">Included</span>
+    </div>
+    <div class="module-box placeholder">
+      <span class="module-num">Module 4</span>
+      <span class="module-title">Nonclinical Study Reports</span>
+      <span class="module-badge badge-pending">Pending</span>
+    </div>
+    <div class="module-box placeholder">
+      <span class="module-num">Module 5</span>
+      <span class="module-title">Clinical Study Reports</span>
+      <span class="module-badge badge-pending">Pending</span>
     </div>
   </div>
 
   <!-- Table of Contents -->
   <div class="toc">
-    <h2>Table of Contents</h2>
+    <h2>Table of Contents — Module 3</h2>
     ${sections.map((s) => `<div class="toc-entry"><span><span class="toc-number">${s.number}</span> ${s.title}</span></div>`).join('\n    ')}
   </div>
 
-  <!-- Sections -->
+  <!-- Compiled Sections -->
   ${sections.map((s) => `
   <div class="section-divider">
-    <div class="section-header">${s.number} – ${s.title}</div>
+    <div class="section-banner">${s.number} – ${s.title}</div>
     ${s.html}
   </div>`).join('\n')}
 
   <div class="footer">
-    CTD Module 3 – ${projectName} | Generated ${now} | Confidential
+    CTD Submission Package – ${projectName} | Compiled ${now} | Confidential – Do Not Distribute
   </div>
 </body>
 </html>`;
@@ -337,7 +405,7 @@ function BuildFinalCTD({ projectName, completedSections, generableCount, runs }:
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `${projectName.replace(/[^a-z0-9]/gi, '_')}_CTD_Module3.html`;
+      a.download = `${projectName.replace(/[^a-z0-9]/gi, '_')}_CTD_Submission_Package.html`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -354,9 +422,9 @@ function BuildFinalCTD({ projectName, completedSections, generableCount, runs }:
           <FileStack size={28} className="text-primary-600" />
         </div>
         <div className="flex-1">
-          <h3 className="text-lg font-bold text-gray-900">Build Final CTD Document</h3>
+          <h3 className="text-lg font-bold text-gray-900">Compile CTD Submission Package</h3>
           <p className="text-sm text-gray-500 mt-1">
-            Compile all generated sections into a single CTD Module 3 document with cover page and table of contents.
+            Compile all modules into the final CTD submission package with cover page, module overview, and table of contents.
           </p>
 
           {/* Status */}
@@ -387,7 +455,7 @@ function BuildFinalCTD({ projectName, completedSections, generableCount, runs }:
               ) : (
                 <Download size={16} />
               )}
-              {building ? 'Building...' : 'Build & Download CTD'}
+              {building ? 'Compiling...' : 'Compile & Download CTD Package'}
             </button>
             {completedCount === 0 && (
               <span className="text-xs text-gray-400">Generate at least one section first</span>
@@ -509,6 +577,14 @@ export default function ProjectDashboard() {
         {/* Module 3 Content */}
         {activeModule === 3 && (
           <>
+            {/* Compile CTD Submission Package */}
+            <BuildFinalCTD
+              projectName={current.name}
+              completedSections={completedSections}
+              generableCount={generableCount}
+              runs={runs}
+            />
+
             {/* Progress tracker */}
             <ProgressTracker
               completedCount={completedSections.size}
@@ -576,13 +652,6 @@ export default function ProjectDashboard() {
               </div>
             </div>
 
-            {/* Build Final CTD Document */}
-            <BuildFinalCTD
-              projectName={current.name}
-              completedSections={completedSections}
-              generableCount={generableCount}
-              runs={runs}
-            />
           </>
         )}
 
