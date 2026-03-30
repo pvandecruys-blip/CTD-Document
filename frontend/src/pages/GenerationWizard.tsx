@@ -158,9 +158,9 @@ function addClientTraceability(
   doc.body.appendChild(appendix);
 
   // Preserve the full document (including <head>/<style>) if the original had it
-  const serializer = new XMLSerializer();
-  const fullHtml = html.trim().toLowerCase().startsWith('<!doctype') || html.trim().toLowerCase().startsWith('<html')
-    ? `<!DOCTYPE html>\n${serializer.serializeToString(doc.documentElement)}`
+  const isFullDoc = html.trim().toLowerCase().startsWith('<!doctype') || html.trim().toLowerCase().startsWith('<html');
+  const fullHtml = isFullDoc
+    ? `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`
     : doc.body.innerHTML;
 
   return { html: fullHtml, refs };
