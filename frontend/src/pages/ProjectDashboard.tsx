@@ -19,10 +19,11 @@ import {
   Loader2,
   FileStack,
   AlertCircle,
+  FileUp,
 } from 'lucide-react';
 import { CTD_STRUCTURE, getLeafSections, getGenerableSections, type CTDSection } from '../config/ctdStructure';
-import { generation } from '../api/client';
-import type { GenerationRun } from '../types';
+import { generation, documents } from '../api/client';
+import type { GenerationRun, DocumentFile } from '../types';
 
 function SectionRow({ section, depth, projectId, completedSections }: { section: CTDSection; depth: number; projectId: string; completedSections: Set<string> }) {
   const navigate = useNavigate();
@@ -404,6 +405,7 @@ export default function ProjectDashboard() {
   const { current, selectById, loading } = useProject();
   const [runs, setRuns] = useState<GenerationRun[]>([]);
   const [activeModule, setActiveModule] = useState(3);
+  const [projectDocs, setProjectDocs] = useState<DocumentFile[]>([]);
 
   useEffect(() => {
     if (projectId) selectById(projectId);
@@ -412,6 +414,7 @@ export default function ProjectDashboard() {
   useEffect(() => {
     if (!projectId) return;
     generation.list(projectId).then((data) => setRuns(data.items)).catch(() => {});
+    documents.list(projectId).then((data) => setProjectDocs(data.items.filter((d: DocumentFile) => d.source !== 'veeva'))).catch(() => {});
   }, [projectId]);
 
   // Compute completed sections from runs
@@ -427,6 +430,16 @@ export default function ProjectDashboard() {
 
   const totalLeaf = useMemo(() => getLeafSections().length, []);
   const generableCount = useMemo(() => getGenerableSections().length, []);
+
+  // Detect documents uploaded after the most recent generation run
+  const newDocsInfo = useMemo(() => {
+    const completedRuns = runs.filter((r) => r.status === 'completed' && r.completed_at);
+    if (completedRuns.length === 0 || projectDocs.length === 0) return null;
+    const lastGenTime = Math.max(...completedRuns.map((r) => new Date(r.completed_at!).getTime()));
+    const newDocs = projectDocs.filter((d) => new Date(d.uploaded_at).getTime() > lastGenTime);
+    if (newDocs.length === 0) return null;
+    return { count: newDocs.length, names: newDocs.map((d) => d.original_filename) };
+  }, [runs, projectDocs]);
 
   if (loading || !current) {
     return (
@@ -515,6 +528,21 @@ export default function ProjectDashboard() {
                 </p>
               </div>
             </div>
+
+            {/* New documents notification */}
+            {newDocsInfo && (
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 flex items-start gap-3">
+                <FileUp className="text-amber-500 flex-shrink-0 mt-0.5" size={18} />
+                <div>
+                  <p className="text-amber-900 font-medium text-sm">
+                    {newDocsInfo.count} new document{newDocsInfo.count > 1 ? 's' : ''} uploaded since last generation
+                  </p>
+                  <p className="text-amber-700 text-xs mt-0.5">
+                    {newDocsInfo.names.join(', ')} — Consider re-generating affected sections to include the latest data.
+                  </p>
+                </div>
+              </div>
+            )}
 
             {/* Drug Substance */}
             <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">

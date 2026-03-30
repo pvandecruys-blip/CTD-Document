@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
-import { ChevronRight, ChevronLeft, Wand2, Check, Download, Clock, CheckCircle2, XCircle, Loader2, Link2 } from 'lucide-react';
-import type { GenerationRun, GenerationStatus } from '../types';
+import { useEffect, useState, useMemo } from 'react';
+import { ChevronRight, ChevronLeft, Wand2, Check, Download, Clock, CheckCircle2, XCircle, Loader2, Link2, FileUp } from 'lucide-react';
+import type { GenerationRun, GenerationStatus, DocumentFile } from '../types';
 import { useProject } from '../context/ProjectContext';
 import { generation, studies, lots, conditions, attributes, documents, type GenerateRequest } from '../api/client';
 
@@ -169,6 +169,7 @@ export default function GenerationWizard({ sectionId = 'S.7.3', sectionNumber = 
   const [includeTrace, setIncludeTrace] = useState(true);
   const [tablePrefix, setTablePrefix] = useState(`${sectionId}-`);
   const [traceCount, setTraceCount] = useState(0);
+  const [projectDocs, setProjectDocs] = useState<DocumentFile[]>([]);
 
   const loadPastRuns = async () => {
     if (!current) return;
@@ -178,7 +179,27 @@ export default function GenerationWizard({ sectionId = 'S.7.3', sectionNumber = 
     } catch { /* */ }
   };
 
-  useEffect(() => { loadPastRuns(); }, [current?.id]);
+  const loadDocs = async () => {
+    if (!current) return;
+    try {
+      const data = await documents.list(current.id);
+      setProjectDocs(data.items.filter((d) => d.source !== 'veeva'));
+    } catch { /* */ }
+  };
+
+  useEffect(() => { loadPastRuns(); loadDocs(); }, [current?.id]);
+
+  // Check if documents were added/updated after the last generation
+  const newDocsInfo = useMemo(() => {
+    const sectionRuns = pastRuns.filter((r) => r.section_id === sectionId && r.status === 'completed');
+    if (sectionRuns.length === 0 || projectDocs.length === 0) return null;
+
+    const lastRunTime = Math.max(...sectionRuns.map((r) => new Date(r.completed_at || r.created_at).getTime()));
+    const newerDocs = projectDocs.filter((d) => new Date(d.uploaded_at).getTime() > lastRunTime);
+
+    if (newerDocs.length === 0) return null;
+    return { count: newerDocs.length, names: newerDocs.map((d) => d.original_filename) };
+  }, [pastRuns, projectDocs, sectionId]);
 
   const handleGenerate = async () => {
     if (!current) return;
@@ -261,6 +282,28 @@ export default function GenerationWizard({ sectionId = 'S.7.3', sectionNumber = 
       <div className="p-6 max-w-4xl mx-auto">
         <h1 className="text-2xl font-bold text-gray-900 mb-6">Generate {sectionNumber}</h1>
 
+        {/* New documents banner */}
+        {newDocsInfo && (
+          <div className="mb-6 p-4 rounded-lg bg-amber-50 border border-amber-200 flex items-start gap-3">
+            <FileUp size={18} className="text-amber-500 flex-shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <p className="text-sm font-medium text-amber-900">
+                {newDocsInfo.count} new document{newDocsInfo.count > 1 ? 's' : ''} uploaded since last generation
+              </p>
+              <p className="text-xs text-amber-700 mt-1">
+                {newDocsInfo.names.join(', ')}
+              </p>
+              <button
+                onClick={handleReset}
+                className="mt-2 inline-flex items-center gap-1.5 text-xs font-medium text-amber-800 hover:text-amber-950 bg-amber-100 hover:bg-amber-200 px-3 py-1.5 rounded-md transition-colors"
+              >
+                <Wand2 size={12} />
+                Regenerate with new documents
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Success card */}
         <div className="bg-white rounded-xl border-2 border-green-200 p-8 text-center mb-8">
           <div className="w-16 h-16 rounded-full bg-green-100 flex items-center justify-center mx-auto mb-4">
@@ -341,9 +384,24 @@ export default function GenerationWizard({ sectionId = 'S.7.3', sectionNumber = 
   return (
     <div className="p-6 max-w-4xl mx-auto">
       <h1 className="text-2xl font-bold text-gray-900 mb-1">Generate {sectionNumber}</h1>
-      <p className="text-sm text-gray-500 mb-6">
-        Stability Data for <span className="font-medium">{current.name}</span>
+      <p className="text-sm text-gray-500 mb-4">
+        {sectionTitle} for <span className="font-medium">{current.name}</span>
       </p>
+
+      {/* New documents notification */}
+      {newDocsInfo && (
+        <div className="mb-6 p-4 rounded-lg bg-amber-50 border border-amber-200 flex items-start gap-3">
+          <FileUp size={18} className="text-amber-500 flex-shrink-0 mt-0.5" />
+          <div>
+            <p className="text-sm font-medium text-amber-900">
+              {newDocsInfo.count} new document{newDocsInfo.count > 1 ? 's' : ''} available since last generation
+            </p>
+            <p className="text-xs text-amber-700 mt-0.5">
+              {newDocsInfo.names.join(', ')}
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Stepper */}
       <div className="flex items-center mb-8">
