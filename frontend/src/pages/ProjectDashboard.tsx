@@ -240,10 +240,10 @@ function extractBodyContent(html: string): string {
   return bodyMatch ? bodyMatch[1].trim() : html;
 }
 
-function BuildFinalCTD({ projectName, completedSections, generableCount, runs }: {
+function BuildFinalCTD({ projectName, completedSections, totalLeaf, runs }: {
   projectName: string;
   completedSections: Set<string>;
-  generableCount: number;
+  totalLeaf: number;
   runs: GenerationRun[];
 }) {
   const [building, setBuilding] = useState(false);
@@ -345,7 +345,7 @@ function BuildFinalCTD({ projectName, completedSections, generableCount, runs }:
     <div class="meta">
       <p><strong>Compilation Date:</strong> ${now}</p>
       <p><strong>Modules Included:</strong> Module 3 – Quality (CMC)</p>
-      <p><strong>Sections Compiled:</strong> ${sections.length} of ${allGenerable.length}</p>
+      <p><strong>Sections Compiled:</strong> ${sections.length} of ${totalLeaf}</p>
       <p><strong>Format:</strong> ICH M4Q(R2) / eCTD</p>
       <p style="margin-top: 20px; font-style: italic;">CONFIDENTIAL</p>
     </div>
@@ -432,13 +432,13 @@ function BuildFinalCTD({ projectName, completedSections, generableCount, runs }:
             <div className="flex items-center gap-2 text-sm">
               <CheckCircle2 size={14} className="text-green-500" />
               <span className="text-gray-700">
-                <span className="font-semibold">{completedCount}</span> of {generableCount} sections generated
+                <span className="font-semibold">{completedCount}</span> of {totalLeaf} sections created
               </span>
             </div>
-            {completedCount < generableCount && (
+            {completedCount < totalLeaf && (
               <div className="flex items-center gap-1.5 text-xs text-amber-600">
                 <AlertCircle size={12} />
-                {generableCount - completedCount} sections remaining
+                {totalLeaf - completedCount} sections remaining
               </div>
             )}
           </div>
@@ -581,7 +581,7 @@ export default function ProjectDashboard() {
             <BuildFinalCTD
               projectName={current.name}
               completedSections={completedSections}
-              generableCount={generableCount}
+              totalLeaf={totalLeaf}
               runs={runs}
             />
 
