@@ -240,10 +240,9 @@ function extractBodyContent(html: string): string {
   return bodyMatch ? bodyMatch[1].trim() : html;
 }
 
-function BuildFinalCTD({ projectName, completedSections, totalLeaf, runs }: {
+function BuildFinalCTD({ projectName, completedSections, runs }: {
   projectName: string;
   completedSections: Set<string>;
-  totalLeaf: number;
   runs: GenerationRun[];
 }) {
   const [building, setBuilding] = useState(false);
@@ -345,7 +344,7 @@ function BuildFinalCTD({ projectName, completedSections, totalLeaf, runs }: {
     <div class="meta">
       <p><strong>Compilation Date:</strong> ${now}</p>
       <p><strong>Modules Included:</strong> Module 3 – Quality (CMC)</p>
-      <p><strong>Sections Compiled:</strong> ${sections.length} of ${totalLeaf}</p>
+      <p><strong>Sections Compiled:</strong> ${sections.length}</p>
       <p><strong>Format:</strong> ICH M4Q(R2) / eCTD</p>
       <p style="margin-top: 20px; font-style: italic;">CONFIDENTIAL</p>
     </div>
@@ -428,17 +427,18 @@ function BuildFinalCTD({ projectName, completedSections, totalLeaf, runs }: {
           </p>
 
           {/* Status */}
-          <div className="mt-4 flex items-center gap-4">
-            <div className="flex items-center gap-2 text-sm">
-              <CheckCircle2 size={14} className="text-green-500" />
-              <span className="text-gray-700">
-                <span className="font-semibold">{completedCount}</span> of {totalLeaf} sections created
-              </span>
-            </div>
-            {completedCount < totalLeaf && (
-              <div className="flex items-center gap-1.5 text-xs text-amber-600">
-                <AlertCircle size={12} />
-                {totalLeaf - completedCount} sections remaining
+          <div className="mt-4">
+            {completedCount > 0 ? (
+              <div className="flex items-center gap-2 text-sm">
+                <CheckCircle2 size={14} className="text-green-500" />
+                <span className="text-gray-700">
+                  {completedCount} section{completedCount !== 1 ? 's' : ''} ready for compilation
+                </span>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 text-sm text-gray-400">
+                <AlertCircle size={14} />
+                <span>No sections generated yet</span>
               </div>
             )}
           </div>
@@ -581,7 +581,6 @@ export default function ProjectDashboard() {
             <BuildFinalCTD
               projectName={current.name}
               completedSections={completedSections}
-              totalLeaf={totalLeaf}
               runs={runs}
             />
 
