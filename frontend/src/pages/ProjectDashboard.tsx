@@ -432,7 +432,7 @@ function BuildFinalCTD({ projectName, completedSections, generableCount, runs }:
             <div className="flex items-center gap-2 text-sm">
               <CheckCircle2 size={14} className="text-green-500" />
               <span className="text-gray-700">
-                <span className="font-semibold">{completedCount}</span> of {generableCount} AI-enabled sections generated
+                <span className="font-semibold">{completedCount}</span> of {generableCount} sections generated
               </span>
             </div>
             {completedCount < generableCount && (
@@ -442,9 +442,6 @@ function BuildFinalCTD({ projectName, completedSections, generableCount, runs }:
               </div>
             )}
           </div>
-          <p className="text-xs text-gray-400 mt-2">
-            Currently {generableCount} sections are AI-enabled for this PoC. Additional modules and sections will be added in future releases.
-          </p>
 
           {/* Button */}
           <div className="mt-5 flex items-center gap-3">
