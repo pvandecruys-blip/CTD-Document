@@ -71,22 +71,24 @@ ${html}
 
 // ── Client-side source traceability (no API call) ───────────────────
 //
-// Every data value in a table cell that can be found in a source document
-// is marked with a reference back to its source. Refs are **shared per
-// unique value**: if "12.5" appears in three cells, all three cells show
-// the same ref number rather than three different ones. This keeps the
-// appendix readable while preserving full verification coverage.
+// Regulatory-style traceability: each **source document** gets one ref
+// number ([1], [2], [3], …). Every traceable value in the document body
+// carries the ref of the source it was found in, and every table gets a
+// "Source: <filename> [N]" caption listing all the source docs that
+// contributed to it.
+//
+// This matches how CTD submissions are typically built in Word/Veeva
+// workflows: the reviewer sees per-table provenance at a glance and can
+// drill into the appendix for the full filenames. Repeated values share
+// the same ref number naturally because they share the same source.
 //
 // We skip:
 //   - the abbreviations/glossary table (definitions, not data)
-//   - true noise (Pass/Fail/N/A/dashes — these appear hundreds of times
-//     and tracing each adds no verification value)
+//   - true noise (Pass/Fail/N/A/dashes — high-frequency, low-value)
 //   - empty cells, page numbers, very short or very long blobs
 interface SourceRef {
   index: number;
-  value: string;
   filename: string;
-  snippet: string;
 }
 
 /** Values too generic to benefit from a source reference. */
@@ -128,6 +130,11 @@ function isMetadataTable(table: Element): boolean {
   return headers.includes('abbreviation') || headers.includes('definition');
 }
 
+/** Escape HTML special chars so filenames/values are safe inside innerHTML. */
+function escapeHtml(s: string): string {
+  return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
+}
+
 /** Find `value` in `docLower` using word-boundary matching so "12" doesn't
  * spuriously match "120", "212", or "12.5". Returns -1 if not found. */
 function findWithWordBoundary(value: string, docLower: string): number {
@@ -149,12 +156,19 @@ function addClientTraceability(
 ): { html: string; refs: SourceRef[] } {
   const parser = new DOMParser();
   const doc = parser.parseFromString(html, 'text/html');
-  const refs: SourceRef[] = [];
-  /** Map from lowercased cell value → ref entry so duplicates share a ref. */
-  const valueToRef = new Map<string, { index: number; filename: string; snippet: string }>();
-  let refIndex = 1;
-  /** How many cells reference each ref (for the appendix occurrence count). */
-  const refUsageCount = new Map<number, number>();
+
+  /** filename → ref index (one per source document, lazily assigned the
+   * first time we find a value coming from that document). */
+  const filenameToRef = new Map<string, number>();
+  let nextRefIndex = 1;
+
+  /** Per-table set of source filenames whose data appears in that table —
+   * drives the per-table "Source: …" caption inserted below each table. */
+  const tableToSources = new Map<Element, Set<string>>();
+
+  /** Cache of (cell value → matched source filename) so we don't re-search
+   * the source corpus for repeated values. */
+  const valueToFilename = new Map<string, string | null>();
 
   // Build searchable text per document (lowercase for matching)
   const docTexts = docMappings
@@ -163,15 +177,15 @@ function addClientTraceability(
 
   if (docTexts.length === 0) return { html, refs: [] };
 
-  // Identify tables to skip in their entirety (abbreviations/glossary —
-  // these are definitions, not data, and pointing back to source for each
-  // abbreviation adds noise without verification value).
+  // Skip metadata tables entirely (abbreviations/glossary)
   const skippedTables = new WeakSet<Element>();
   doc.querySelectorAll('table').forEach((t) => {
     if (isMetadataTable(t)) skippedTables.add(t);
   });
 
   const cells = doc.querySelectorAll('td');
+  let totalCellRefs = 0;
+
   cells.forEach((cell) => {
     const parentTable = cell.closest('table');
     if (parentTable && skippedTables.has(parentTable)) return;
@@ -180,68 +194,89 @@ function addClientTraceability(
     if (!shouldTraceValue(raw)) return;
 
     const dedupKey = raw.toLowerCase();
-    let entry = valueToRef.get(dedupKey);
+    let matchedFilename = valueToFilename.get(dedupKey) ?? null;
 
-    if (!entry) {
-      // First time we see this value — look it up in source documents.
+    if (matchedFilename === null && !valueToFilename.has(dedupKey)) {
+      // First lookup for this value
       for (const d of docTexts) {
-        const pos = findWithWordBoundary(dedupKey, d.lower);
-        if (pos === -1) continue;
-
-        const start = Math.max(0, pos - 40);
-        const end = Math.min(d.text.length, pos + dedupKey.length + 40);
-        let snippet = d.text.slice(start, end).replace(/\s+/g, ' ').trim();
-        if (start > 0) snippet = '...' + snippet;
-        if (end < d.text.length) snippet = snippet + '...';
-
-        entry = { index: refIndex, filename: d.filename, snippet };
-        valueToRef.set(dedupKey, entry);
-        refs.push({ index: refIndex, value: raw, filename: d.filename, snippet });
-        refIndex++;
-        break;
+        if (findWithWordBoundary(dedupKey, d.lower) !== -1) {
+          matchedFilename = d.filename;
+          break;
+        }
       }
-      if (!entry) return; // value not found in any source doc
+      valueToFilename.set(dedupKey, matchedFilename);
+    }
+    if (!matchedFilename) return;
+
+    // Assign (or reuse) the source document's ref number
+    let ref = filenameToRef.get(matchedFilename);
+    if (ref === undefined) {
+      ref = nextRefIndex++;
+      filenameToRef.set(matchedFilename, ref);
     }
 
-    // Attach the (possibly shared) ref number to this cell.
-    refUsageCount.set(entry.index, (refUsageCount.get(entry.index) || 0) + 1);
+    // Record this source as contributing to the parent table
+    if (parentTable) {
+      let sources = tableToSources.get(parentTable);
+      if (!sources) { sources = new Set(); tableToSources.set(parentTable, sources); }
+      sources.add(matchedFilename);
+    }
+
+    // Attach the inline ref. Because the same number is repeated across
+    // cells from the same document, the eye habituates and it reads as a
+    // subtle marker rather than noise.
     const sup = doc.createElement('sup');
-    sup.textContent = `[${entry.index}]`;
-    sup.style.cssText = 'color:#cbd5e1;font-size:7px;cursor:help;margin-left:1px;font-weight:normal;vertical-align:super;';
-    sup.title = `Source: ${entry.filename}`;
+    sup.textContent = `[${ref}]`;
+    sup.style.cssText = 'color:#94a3b8;font-size:8px;cursor:help;margin-left:1px;font-weight:normal;vertical-align:super;';
+    sup.title = `Source: ${matchedFilename}`;
     cell.appendChild(sup);
+    totalCellRefs++;
   });
 
-  if (refs.length === 0) return { html, refs: [] };
+  if (filenameToRef.size === 0) return { html, refs: [] };
 
-  // 2. Add source appendix at the bottom
+  // Insert per-table "Source: …" captions just after each table.
+  tableToSources.forEach((sources, table) => {
+    if (sources.size === 0) return;
+    const caption = doc.createElement('p');
+    caption.style.cssText = 'font-size:10px;color:#6b7280;font-style:italic;margin-top:-4px;margin-bottom:18px;padding-left:2px;';
+    const sourceList = [...sources]
+      .map((f) => `${escapeHtml(f)} <sup style="color:#2563eb;font-style:normal;font-weight:600;">[${filenameToRef.get(f)}]</sup>`)
+      .join(', ');
+    caption.innerHTML = `Source: ${sourceList}`;
+    if (table.nextSibling) {
+      table.parentNode?.insertBefore(caption, table.nextSibling);
+    } else {
+      table.parentNode?.appendChild(caption);
+    }
+  });
+
+  // Build the appendix — one row per source document.
+  const refs: SourceRef[] = [...filenameToRef.entries()]
+    .map(([filename, index]) => ({ index, filename }))
+    .sort((a, b) => a.index - b.index);
+
   const appendix = doc.createElement('div');
   appendix.style.cssText = 'margin-top:40px;padding-top:20px;border-top:2px solid #1a1a1a;';
   appendix.innerHTML = `
     <h3 style="font-size:14px;font-weight:bold;margin-bottom:12px;">Source References</h3>
-    <table style="border-collapse:collapse;width:100%;font-size:10px;">
+    <table style="border-collapse:collapse;width:100%;font-size:11px;">
       <thead>
         <tr style="background:#f3f4f6;">
-          <th style="border:1px solid #d1d5db;padding:4px 8px;width:30px;">Ref</th>
-          <th style="border:1px solid #d1d5db;padding:4px 8px;">Value</th>
-          <th style="border:1px solid #d1d5db;padding:4px 8px;width:40px;text-align:center;">Uses</th>
-          <th style="border:1px solid #d1d5db;padding:4px 8px;">Source Document</th>
-          <th style="border:1px solid #d1d5db;padding:4px 8px;">Context</th>
+          <th style="border:1px solid #d1d5db;padding:6px 10px;width:40px;text-align:center;">Ref</th>
+          <th style="border:1px solid #d1d5db;padding:6px 10px;">Source Document</th>
         </tr>
       </thead>
       <tbody>
         ${refs.map((r) => `
           <tr>
-            <td style="border:1px solid #d1d5db;padding:4px 8px;text-align:center;color:#2563eb;font-weight:bold;">[${r.index}]</td>
-            <td style="border:1px solid #d1d5db;padding:4px 8px;">${r.value}</td>
-            <td style="border:1px solid #d1d5db;padding:4px 8px;text-align:center;color:#6b7280;">${refUsageCount.get(r.index) || 1}</td>
-            <td style="border:1px solid #d1d5db;padding:4px 8px;font-style:italic;">${r.filename}</td>
-            <td style="border:1px solid #d1d5db;padding:4px 8px;color:#6b7280;font-size:9px;">${r.snippet}</td>
+            <td style="border:1px solid #d1d5db;padding:6px 10px;text-align:center;color:#2563eb;font-weight:bold;">[${r.index}]</td>
+            <td style="border:1px solid #d1d5db;padding:6px 10px;">${escapeHtml(r.filename)}</td>
           </tr>
         `).join('')}
       </tbody>
     </table>
-    <p style="font-size:9px;color:#9ca3af;margin-top:8px;">${refs.length} unique value${refs.length !== 1 ? 's' : ''} traced to ${new Set(refs.map(r => r.filename)).size} source document${new Set(refs.map(r => r.filename)).size !== 1 ? 's' : ''}, used in ${[...refUsageCount.values()].reduce((a, b) => a + b, 0)} cell${[...refUsageCount.values()].reduce((a, b) => a + b, 0) !== 1 ? 's' : ''}. Identical values across cells share a single reference number. Generic terms (Pass, N/A) and the abbreviations table are excluded.</p>
+    <p style="font-size:9px;color:#9ca3af;margin-top:8px;">${refs.length} source document${refs.length !== 1 ? 's' : ''} referenced across ${totalCellRefs} value${totalCellRefs !== 1 ? 's' : ''}. Each table also carries an inline caption listing its sources. The abbreviations table and generic terms (Pass, N/A) are excluded from tracing.</p>
   `;
   doc.body.appendChild(appendix);
 
