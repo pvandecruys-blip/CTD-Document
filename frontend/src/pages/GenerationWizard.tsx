@@ -71,11 +71,17 @@ ${html}
 
 // ── Client-side source traceability (no API call) ───────────────────
 //
-// Marks **distinctive** values in table cells with a source reference.
-// We intentionally skip generic noise so the document doesn't end up with
-// 99 footnotes on "Pass", "N/A", "12", abbreviations, etc. A reference
-// only adds value when it points to a specific, traceable data point:
-// document IDs, batch numbers, dates, measured values with units.
+// Every data value in a table cell that can be found in a source document
+// is marked with a reference back to its source. Refs are **shared per
+// unique value**: if "12.5" appears in three cells, all three cells show
+// the same ref number rather than three different ones. This keeps the
+// appendix readable while preserving full verification coverage.
+//
+// We skip:
+//   - the abbreviations/glossary table (definitions, not data)
+//   - true noise (Pass/Fail/N/A/dashes — these appear hundreds of times
+//     and tracing each adds no verification value)
+//   - empty cells, page numbers, very short or very long blobs
 interface SourceRef {
   index: number;
   value: string;
@@ -83,61 +89,33 @@ interface SourceRef {
   snippet: string;
 }
 
-/** Values too generic to be meaningful traceability anchors. */
+/** Values too generic to benefit from a source reference. */
 const TRACEABILITY_STOPWORDS: ReadonlySet<string> = new Set([
   // Result words
   'pass', 'fail', 'failed', 'passed', 'pending', 'closed', 'open',
-  'completed', 'within limits', 'controlled', 'not applicable',
-  'yes', 'no', 'true', 'false', 'none', 'unknown',
+  'completed', 'within limits', 'controlled',
+  // Generic affirmatives/negatives
+  'yes', 'no', 'true', 'false', 'none', 'unknown', 'n/a', 'na',
+  'not applicable',
   // Punctuation / placeholders
-  '—', '-', '...', 'tbd', 'tbc',
-  // Standard biotech/regulatory abbreviations — already explained in
-  // the abbreviations table, no per-occurrence trace needed
-  'api', 'ich', 'nmt', 'nlt', 'cv', 'sd', 'rh', 'do', 'tff',
-  'aex', 'cex', 'ppk', 'cpk', 'cqa', 'cpp', 'ipc', 'dna', 'hcp',
-  'eu', 'cfu', 'ppm', 'ppb', 'sec', 'sub', 'vcd', 'vf', 'lmh',
-  'pat', 'qbd', 'rsd', 'ppq', 'pro', 'coa', 'usl', 'lsl', 'tmp',
-  'uf/df', 'a280', 'ph',
-  // Common section/column labels that AI sometimes echoes as cell values
+  '—', '-', '...', '..', '.', 'tbd', 'tbc',
+  // Common table labels the AI sometimes echoes
   'parameter', 'specification', 'criteria', 'result', 'value',
-  'unit operation', 'equipment type', 'mean', 'sd',
+  'unit operation', 'equipment type', 'mean',
 ]);
 
-/** Patterns that always merit a traceability reference. */
-const HIGH_VALUE_PATTERNS: readonly RegExp[] = [
-  /^[A-Z]{2,}-[A-Z0-9-]+\d+(?:-\d+)?$/i,                                    // RPT-VAL-001, DEV-1002-01, PRO-VAL-001
-  /^Batch\s+\d{3,}$/i,                                                       // Batch 1001
-  /^Lot\s+\d{3,}$/i,                                                         // Lot 1001
-  /^\d{1,2}-[A-Z]{3}-\d{4}$/i,                                              // 14-NOV-2022
-  /^\d+(?:\.\d+)?\s*(?:g\/L|mg\/mL|LMH|°C|EU\/mL|ppm|ppb|mOsm\/kg|cells\/mL|µm|kg|min|hours?|days?)\b/i,
-  /^\d+(?:\.\d+)?\s*±\s*\d+(?:\.\d+)?\b/,                                   // 6.0 ± 0.4
-  /^\d{1,3}(?:,\d{3})+\s*L\b/i,                                             // 2,000 L
-  /^Site\s+[A-Z](?:\s*\([^)]+\))?$/i,                                       // Site A, Site A (Building B)
-];
-
-const TRIVIAL_NUMERIC_RE = /^[<>≤≥]?\s*\d{1,3}(?:\.\d{1,2})?\s*%?$/;
-const SHORT_UPPERCASE_RE = /^[A-Z]{2,5}$/;
 const PAGE_NUMBER_RE = /^Page\s+\d+\s+of\s+\d+$/i;
 
-/** A cell value is trace-worthy only if it matches a HIGH_VALUE pattern.
- * This intentionally excludes bare numbers, single abbreviations, label-like
- * phrases, and other content that would create noise without verification
- * benefit. The Source References appendix then contains only specific,
- * unambiguous identifiers (document IDs, batch numbers, dates, values with
- * units, tolerances, volumes). */
+/** Accept any non-noise value. Bare numbers, abbreviations, value+unit
+ * combinations, identifiers — all welcome, because regulatory reviewers
+ * need every figure verifiable against source. Generic stopwords are
+ * filtered to keep the appendix from being dominated by "Pass" and "N/A". */
 function shouldTraceValue(raw: string): boolean {
   const t = raw.trim();
-  if (t.length < 3 || t.length > 100) return false;
-
-  const lower = t.toLowerCase();
-  if (TRACEABILITY_STOPWORDS.has(lower)) return false;
-
-  // Quick rejects (kept for documentation; HIGH_VALUE check below is the gate)
-  if (TRIVIAL_NUMERIC_RE.test(t)) return false;
-  if (SHORT_UPPERCASE_RE.test(t)) return false;
+  if (t.length < 2 || t.length > 100) return false;
+  if (TRACEABILITY_STOPWORDS.has(t.toLowerCase())) return false;
   if (PAGE_NUMBER_RE.test(t)) return false;
-
-  return HIGH_VALUE_PATTERNS.some((re) => re.test(t));
+  return true;
 }
 
 /** Heuristic: skip the abbreviations/glossary table — its values are by definition
@@ -165,8 +143,6 @@ function findWithWordBoundary(value: string, docLower: string): number {
   }
 }
 
-const MAX_TRACEABILITY_REFS = 30;
-
 function addClientTraceability(
   html: string,
   docMappings: { filename: string; extracted_text: string }[]
@@ -174,8 +150,11 @@ function addClientTraceability(
   const parser = new DOMParser();
   const doc = parser.parseFromString(html, 'text/html');
   const refs: SourceRef[] = [];
-  const seen = new Set<string>();
+  /** Map from lowercased cell value → ref entry so duplicates share a ref. */
+  const valueToRef = new Map<string, { index: number; filename: string; snippet: string }>();
   let refIndex = 1;
+  /** How many cells reference each ref (for the appendix occurrence count). */
+  const refUsageCount = new Map<number, number>();
 
   // Build searchable text per document (lowercase for matching)
   const docTexts = docMappings
@@ -184,7 +163,9 @@ function addClientTraceability(
 
   if (docTexts.length === 0) return { html, refs: [] };
 
-  // Identify tables to skip in their entirety (abbreviations/glossary).
+  // Identify tables to skip in their entirety (abbreviations/glossary —
+  // these are definitions, not data, and pointing back to source for each
+  // abbreviation adds noise without verification value).
   const skippedTables = new WeakSet<Element>();
   doc.querySelectorAll('table').forEach((t) => {
     if (isMetadataTable(t)) skippedTables.add(t);
@@ -192,42 +173,43 @@ function addClientTraceability(
 
   const cells = doc.querySelectorAll('td');
   cells.forEach((cell) => {
-    if (refs.length >= MAX_TRACEABILITY_REFS) return;
-
-    // Skip cells inside metadata tables (abbreviations etc.)
     const parentTable = cell.closest('table');
     if (parentTable && skippedTables.has(parentTable)) return;
 
     const raw = (cell.textContent || '').trim();
     if (!shouldTraceValue(raw)) return;
+
     const dedupKey = raw.toLowerCase();
-    if (seen.has(dedupKey)) return;
+    let entry = valueToRef.get(dedupKey);
 
-    // Try to find this value in source documents with word-boundary matching
-    const searchVal = raw.toLowerCase();
-    for (const d of docTexts) {
-      const pos = findWithWordBoundary(searchVal, d.lower);
-      if (pos === -1) continue;
+    if (!entry) {
+      // First time we see this value — look it up in source documents.
+      for (const d of docTexts) {
+        const pos = findWithWordBoundary(dedupKey, d.lower);
+        if (pos === -1) continue;
 
-      const start = Math.max(0, pos - 40);
-      const end = Math.min(d.text.length, pos + searchVal.length + 40);
-      let snippet = d.text.slice(start, end).replace(/\s+/g, ' ').trim();
-      if (start > 0) snippet = '...' + snippet;
-      if (end < d.text.length) snippet = snippet + '...';
+        const start = Math.max(0, pos - 40);
+        const end = Math.min(d.text.length, pos + dedupKey.length + 40);
+        let snippet = d.text.slice(start, end).replace(/\s+/g, ' ').trim();
+        if (start > 0) snippet = '...' + snippet;
+        if (end < d.text.length) snippet = snippet + '...';
 
-      seen.add(dedupKey);
-      refs.push({ index: refIndex, value: raw, filename: d.filename, snippet });
-
-      // Subtle superscript — readable but doesn't shout
-      const sup = doc.createElement('sup');
-      sup.textContent = `[${refIndex}]`;
-      sup.style.cssText = 'color:#94a3b8;font-size:8px;cursor:help;margin-left:2px;font-weight:normal;';
-      sup.title = `Source: ${d.filename}`;
-      cell.appendChild(sup);
-
-      refIndex++;
-      break; // One match per cell value is enough
+        entry = { index: refIndex, filename: d.filename, snippet };
+        valueToRef.set(dedupKey, entry);
+        refs.push({ index: refIndex, value: raw, filename: d.filename, snippet });
+        refIndex++;
+        break;
+      }
+      if (!entry) return; // value not found in any source doc
     }
+
+    // Attach the (possibly shared) ref number to this cell.
+    refUsageCount.set(entry.index, (refUsageCount.get(entry.index) || 0) + 1);
+    const sup = doc.createElement('sup');
+    sup.textContent = `[${entry.index}]`;
+    sup.style.cssText = 'color:#cbd5e1;font-size:7px;cursor:help;margin-left:1px;font-weight:normal;vertical-align:super;';
+    sup.title = `Source: ${entry.filename}`;
+    cell.appendChild(sup);
   });
 
   if (refs.length === 0) return { html, refs: [] };
@@ -242,6 +224,7 @@ function addClientTraceability(
         <tr style="background:#f3f4f6;">
           <th style="border:1px solid #d1d5db;padding:4px 8px;width:30px;">Ref</th>
           <th style="border:1px solid #d1d5db;padding:4px 8px;">Value</th>
+          <th style="border:1px solid #d1d5db;padding:4px 8px;width:40px;text-align:center;">Uses</th>
           <th style="border:1px solid #d1d5db;padding:4px 8px;">Source Document</th>
           <th style="border:1px solid #d1d5db;padding:4px 8px;">Context</th>
         </tr>
@@ -251,13 +234,14 @@ function addClientTraceability(
           <tr>
             <td style="border:1px solid #d1d5db;padding:4px 8px;text-align:center;color:#2563eb;font-weight:bold;">[${r.index}]</td>
             <td style="border:1px solid #d1d5db;padding:4px 8px;">${r.value}</td>
+            <td style="border:1px solid #d1d5db;padding:4px 8px;text-align:center;color:#6b7280;">${refUsageCount.get(r.index) || 1}</td>
             <td style="border:1px solid #d1d5db;padding:4px 8px;font-style:italic;">${r.filename}</td>
             <td style="border:1px solid #d1d5db;padding:4px 8px;color:#6b7280;font-size:9px;">${r.snippet}</td>
           </tr>
         `).join('')}
       </tbody>
     </table>
-    <p style="font-size:9px;color:#9ca3af;margin-top:8px;">${refs.length} distinctive value${refs.length !== 1 ? 's' : ''} traced to ${new Set(refs.map(r => r.filename)).size} source document${new Set(refs.map(r => r.filename)).size !== 1 ? 's' : ''}${refs.length >= MAX_TRACEABILITY_REFS ? ` (capped at ${MAX_TRACEABILITY_REFS})` : ''}. Generic terms, abbreviations and bare numbers are excluded.</p>
+    <p style="font-size:9px;color:#9ca3af;margin-top:8px;">${refs.length} unique value${refs.length !== 1 ? 's' : ''} traced to ${new Set(refs.map(r => r.filename)).size} source document${new Set(refs.map(r => r.filename)).size !== 1 ? 's' : ''}, used in ${[...refUsageCount.values()].reduce((a, b) => a + b, 0)} cell${[...refUsageCount.values()].reduce((a, b) => a + b, 0) !== 1 ? 's' : ''}. Identical values across cells share a single reference number. Generic terms (Pass, N/A) and the abbreviations table are excluded.</p>
   `;
   doc.body.appendChild(appendix);
 
