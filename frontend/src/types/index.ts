@@ -68,6 +68,13 @@ export interface DocumentFile {
   uploaded_at: string;
   notes?: string;
   source?: 'upload' | 'veeva';
+  /**
+   * CTD section IDs (e.g. ["S.7.1", "S.7.3"]) that this document should
+   * feed into during generation. Empty/undefined means the document is
+   * project-wide and visible to every section's source picker, but is
+   * not auto-included unless a section explicitly selects it.
+   */
+  section_tags?: string[];
 }
 
 export interface SourceAnchor {
@@ -418,6 +425,45 @@ export interface AllocationPackJSON {
     definition: string;
     source_page: number;
   }>;
+}
+
+// ── Paragraph editor (locks, comments, versions) ──────────────────
+
+export type CommentStatus = 'open' | 'approved' | 'needs_change' | 'blocked';
+
+export interface ParagraphComment {
+  id: string;
+  pid: string;
+  text: string;
+  status: CommentStatus;
+  author: string;
+  created_at: string;
+}
+
+export interface ParagraphVersion {
+  /** The HTML snippet of the paragraph at the time it was captured. */
+  html: string;
+  /** ISO timestamp when this version was created. */
+  created_at: string;
+  /** The run_id that produced this version (so we can group versions per generation). */
+  run_id: string;
+}
+
+/**
+ * Snapshot of a single paragraph state in localStorage. Stored as a map
+ * keyed by run_id, then by pid.
+ */
+export interface ParagraphState {
+  /** True if regeneration should preserve this paragraph verbatim. */
+  locked?: boolean;
+  /** Most recent N versions of this paragraph, oldest first. */
+  versions?: ParagraphVersion[];
+  /** Pending track-changes diff: html before regeneration, html after. */
+  pending_change?: {
+    before_html: string;
+    after_html: string;
+    captured_at: string;
+  };
 }
 
 // ── Veeva Vault ───────────────────────────────────────────────────

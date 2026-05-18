@@ -20,6 +20,10 @@ import type {
   ValidationReport,
   VeevaDocument,
   VeevaNotification,
+  ParagraphComment,
+  ParagraphVersion,
+  ParagraphState,
+  CommentStatus,
 } from '../types';
 
 // ── Storage Keys ────────────────────────────────────────────────────
@@ -152,6 +156,12 @@ export const projects = {
 };
 
 // ── Documents ───────────────────────────────────────────────────────
+export interface UploadOptions {
+  classification?: string;
+  source?: 'upload' | 'veeva';
+  section_tags?: string[];
+}
+
 export const documents = {
   list: async (projectId: string) => {
     await delay();
@@ -160,8 +170,37 @@ export const documents = {
     return { items };
   },
 
-  upload: async (projectId: string, filename: string, extractedText: string, classification?: string, source?: 'upload' | 'veeva') => {
+  /**
+   * Return the documents that should feed generation for a given CTD section.
+   * A document is considered "for this section" if its section_tags array
+   * contains the section id. Documents without section_tags are untagged
+   * and excluded from generation by default — they remain visible in the
+   * project library so the user can tag them or pick them per section.
+   */
+  listForSection: async (projectId: string, sectionId: string) => {
     await delay();
+    const allDocs = getStorage<Record<string, DocumentFile[]>>(STORAGE_KEYS.DOCUMENTS, {});
+    const all = allDocs[projectId] || [];
+    const items = all.filter((d) => Array.isArray(d.section_tags) && d.section_tags.includes(sectionId));
+    return { items };
+  },
+
+  upload: async (
+    projectId: string,
+    filename: string,
+    extractedText: string,
+    classificationOrOpts?: string | UploadOptions,
+    source?: 'upload' | 'veeva',
+  ) => {
+    await delay();
+
+    // Back-compat: old call sites pass (projectId, filename, text, classification, source).
+    // New call sites pass (projectId, filename, text, { classification, source, section_tags }).
+    const opts: UploadOptions =
+      typeof classificationOrOpts === 'object' && classificationOrOpts !== null
+        ? classificationOrOpts
+        : { classification: classificationOrOpts as string | undefined, source };
+
     const allDocs = getStorage<Record<string, DocumentFile[]>>(STORAGE_KEYS.DOCUMENTS, {});
     if (!allDocs[projectId]) allDocs[projectId] = [];
 
@@ -171,12 +210,13 @@ export const documents = {
       filename,
       original_filename: filename,
       file_type: filename.split('.').pop() || 'unknown',
-      classification: (classification as DocumentClassification) || 'other_supporting',
+      classification: (opts.classification as DocumentClassification) || 'other_supporting',
       authority: 'supporting',
       checksum_sha256: 'local-storage',
       file_size_bytes: extractedText.length,
       uploaded_at: new Date().toISOString(),
-      source: source || 'upload',
+      source: opts.source || 'upload',
+      section_tags: opts.section_tags && opts.section_tags.length > 0 ? [...opts.section_tags] : undefined,
     };
     allDocs[projectId].push(newDoc);
     setStorage(STORAGE_KEYS.DOCUMENTS, allDocs);
@@ -210,6 +250,52 @@ export const documents = {
       }
     }
     throw new Error('Document not found');
+  },
+
+  /**
+   * Replace the section_tags on a document. Pass [] to clear all tags
+   * (document becomes untagged — visible in library but not used by any
+   * section's generation until explicitly retagged).
+   */
+  setTags: async (projectId: string, docId: string, tags: string[]) => {
+    await delay();
+    const allDocs = getStorage<Record<string, DocumentFile[]>>(STORAGE_KEYS.DOCUMENTS, {});
+    const docs = allDocs[projectId];
+    if (!docs) throw new Error('Project not found');
+    const doc = docs.find((d) => d.id === docId);
+    if (!doc) throw new Error('Document not found');
+    doc.section_tags = tags.length > 0 ? [...new Set(tags)] : undefined;
+    setStorage(STORAGE_KEYS.DOCUMENTS, allDocs);
+    return doc;
+  },
+
+  /** Add a single section tag (idempotent). */
+  addTag: async (projectId: string, docId: string, sectionId: string) => {
+    await delay();
+    const allDocs = getStorage<Record<string, DocumentFile[]>>(STORAGE_KEYS.DOCUMENTS, {});
+    const docs = allDocs[projectId];
+    if (!docs) throw new Error('Project not found');
+    const doc = docs.find((d) => d.id === docId);
+    if (!doc) throw new Error('Document not found');
+    const current = new Set(doc.section_tags || []);
+    current.add(sectionId);
+    doc.section_tags = [...current];
+    setStorage(STORAGE_KEYS.DOCUMENTS, allDocs);
+    return doc;
+  },
+
+  /** Remove a single section tag (idempotent). */
+  removeTag: async (projectId: string, docId: string, sectionId: string) => {
+    await delay();
+    const allDocs = getStorage<Record<string, DocumentFile[]>>(STORAGE_KEYS.DOCUMENTS, {});
+    const docs = allDocs[projectId];
+    if (!docs) throw new Error('Project not found');
+    const doc = docs.find((d) => d.id === docId);
+    if (!doc) throw new Error('Document not found');
+    const filtered = (doc.section_tags || []).filter((t) => t !== sectionId);
+    doc.section_tags = filtered.length > 0 ? filtered : undefined;
+    setStorage(STORAGE_KEYS.DOCUMENTS, allDocs);
+    return doc;
   },
 
   delete: async (projectId: string, docId: string) => {
@@ -616,6 +702,15 @@ export interface GenerateRequest {
     extracted_text: string;
     classification: string;
   }[];
+  /**
+   * Locked paragraphs from a prior generation that must be preserved
+   * byte-exact in the regenerated output. The backend will defensively
+   * re-inject these even if the model ignored the instruction.
+   */
+  locked_paragraphs?: {
+    pid: string;
+    html: string;
+  }[];
 }
 
 // Storage key for generated HTML content
@@ -660,6 +755,7 @@ export const generation = {
             acceptance_criteria: a.acceptance_criteria?.map((ac) => ({ criteria_text: ac.criteria_text })) || [],
           })),
           documents: req.documents,
+          locked_paragraphs: req.locked_paragraphs || [],
         }),
       });
 
@@ -1425,5 +1521,176 @@ export const veeva = {
     const notif = notifs.find((n) => n.id === notifId);
     if (notif) notif.dismissed = true;
     setStorage(VEEVA_NOTIFICATIONS_KEY, allNotifs);
+  },
+};
+
+// ── Paragraph editor state (locks, comments, versions) ─────────────
+//
+// All paragraph-level state is keyed by `run_id` (one generation run) then
+// by `pid` (the data-pid emitted by the backend). Everything lives in
+// localStorage; no backend persistence yet. We keep this completely
+// separate from the run/HTML storage so we don't bloat those records.
+
+const PARAGRAPH_STATE_KEY = 'ctd_paragraph_state';
+const PARAGRAPH_COMMENTS_KEY = 'ctd_paragraph_comments';
+const VERSION_HISTORY_LIMIT = 3;
+
+type ParagraphStateStore = Record<string /* runId */, Record<string /* pid */, ParagraphState>>;
+type ParagraphCommentsStore = Record<string /* runId */, ParagraphComment[]>;
+
+function loadParagraphState(): ParagraphStateStore {
+  return getStorage<ParagraphStateStore>(PARAGRAPH_STATE_KEY, {});
+}
+function loadComments(): ParagraphCommentsStore {
+  return getStorage<ParagraphCommentsStore>(PARAGRAPH_COMMENTS_KEY, {});
+}
+
+export const paragraphs = {
+  /** All paragraph-level state for a given run, keyed by pid. */
+  getStates: (runId: string): Record<string, ParagraphState> => {
+    const all = loadParagraphState();
+    return all[runId] || {};
+  },
+
+  /** Lock or unlock a paragraph. Locked paragraphs are preserved on regeneration. */
+  setLocked: (runId: string, pid: string, locked: boolean): ParagraphState => {
+    const all = loadParagraphState();
+    if (!all[runId]) all[runId] = {};
+    if (!all[runId][pid]) all[runId][pid] = {};
+    all[runId][pid].locked = locked;
+    setStorage(PARAGRAPH_STATE_KEY, all);
+    return all[runId][pid];
+  },
+
+  /**
+   * Capture a paragraph snapshot in the rolling version history.
+   * Keeps the most recent VERSION_HISTORY_LIMIT entries.
+   */
+  pushVersion: (runId: string, pid: string, version: ParagraphVersion): void => {
+    const all = loadParagraphState();
+    if (!all[runId]) all[runId] = {};
+    if (!all[runId][pid]) all[runId][pid] = {};
+    const versions = all[runId][pid].versions || [];
+    versions.push(version);
+    if (versions.length > VERSION_HISTORY_LIMIT) versions.splice(0, versions.length - VERSION_HISTORY_LIMIT);
+    all[runId][pid].versions = versions;
+    setStorage(PARAGRAPH_STATE_KEY, all);
+  },
+
+  /**
+   * Record a pending track-change for the given pid. The reviewer will
+   * later accept (keep `after_html`) or reject (revert to `before_html`).
+   */
+  setPendingChange: (runId: string, pid: string, beforeHtml: string, afterHtml: string): void => {
+    const all = loadParagraphState();
+    if (!all[runId]) all[runId] = {};
+    if (!all[runId][pid]) all[runId][pid] = {};
+    all[runId][pid].pending_change = {
+      before_html: beforeHtml,
+      after_html: afterHtml,
+      captured_at: new Date().toISOString(),
+    };
+    setStorage(PARAGRAPH_STATE_KEY, all);
+  },
+
+  clearPendingChange: (runId: string, pid: string): void => {
+    const all = loadParagraphState();
+    if (all[runId]?.[pid]?.pending_change) {
+      delete all[runId][pid].pending_change;
+      setStorage(PARAGRAPH_STATE_KEY, all);
+    }
+  },
+
+  /** Get all comments for a run, optionally filtered by pid. */
+  getComments: (runId: string, pid?: string): ParagraphComment[] => {
+    const all = loadComments();
+    const items = all[runId] || [];
+    return pid ? items.filter((c) => c.pid === pid) : items;
+  },
+
+  addComment: (runId: string, pid: string, text: string, author: string = 'Local User'): ParagraphComment => {
+    const all = loadComments();
+    if (!all[runId]) all[runId] = [];
+    const comment: ParagraphComment = {
+      id: generateId('cmt'),
+      pid,
+      text,
+      status: 'open',
+      author,
+      created_at: new Date().toISOString(),
+    };
+    all[runId].push(comment);
+    setStorage(PARAGRAPH_COMMENTS_KEY, all);
+    return comment;
+  },
+
+  updateComment: (runId: string, commentId: string, updates: Partial<Pick<ParagraphComment, 'text' | 'status'>>): ParagraphComment | null => {
+    const all = loadComments();
+    const items = all[runId] || [];
+    const c = items.find((x) => x.id === commentId);
+    if (!c) return null;
+    if (updates.text !== undefined) c.text = updates.text;
+    if (updates.status !== undefined) c.status = updates.status;
+    setStorage(PARAGRAPH_COMMENTS_KEY, all);
+    return c;
+  },
+
+  deleteComment: (runId: string, commentId: string): void => {
+    const all = loadComments();
+    if (!all[runId]) return;
+    all[runId] = all[runId].filter((c) => c.id !== commentId);
+    setStorage(PARAGRAPH_COMMENTS_KEY, all);
+  },
+
+  setCommentStatus: (runId: string, commentId: string, status: CommentStatus): ParagraphComment | null => {
+    return paragraphs.updateComment(runId, commentId, { status });
+  },
+
+  /** Discard all paragraph state for a run (when the run is deleted). */
+  clearRun: (runId: string): void => {
+    const states = loadParagraphState();
+    const comments = loadComments();
+    if (states[runId]) {
+      delete states[runId];
+      setStorage(PARAGRAPH_STATE_KEY, states);
+    }
+    if (comments[runId]) {
+      delete comments[runId];
+      setStorage(PARAGRAPH_COMMENTS_KEY, comments);
+    }
+  },
+
+  /**
+   * Copy paragraph state (locks, versions, comments) from one run to another.
+   * Used on regenerate so the new run inherits the user's prior edits — locks
+   * stay locked, comment threads continue across paragraphs by pid, and
+   * version history accumulates instead of resetting.
+   */
+  cloneRun: (fromRunId: string, toRunId: string): void => {
+    const states = loadParagraphState();
+    const comments = loadComments();
+
+    const src = states[fromRunId];
+    if (src) {
+      const dst = states[toRunId] || {};
+      for (const [pid, state] of Object.entries(src)) {
+        const target = dst[pid] || {};
+        if (state.locked !== undefined) target.locked = state.locked;
+        if (state.versions) target.versions = [...state.versions];
+        dst[pid] = target;
+      }
+      states[toRunId] = dst;
+      setStorage(PARAGRAPH_STATE_KEY, states);
+    }
+
+    const srcComments = comments[fromRunId];
+    if (srcComments && srcComments.length > 0) {
+      const dst = comments[toRunId] || [];
+      for (const c of srcComments) {
+        dst.push({ ...c, id: generateId('cmt') });
+      }
+      comments[toRunId] = dst;
+      setStorage(PARAGRAPH_COMMENTS_KEY, comments);
+    }
   },
 };

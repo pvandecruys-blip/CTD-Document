@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { Routes, Route, NavLink, Navigate, useNavigate, useParams } from 'react-router-dom';
 import {
-  Upload,
+  FolderInput,
   Wand2,
   ShieldCheck,
   BookOpen,
@@ -17,23 +17,23 @@ import { veeva } from './api/client';
 import type { VeevaNotification } from './types';
 import Home from './pages/Home';
 import ProjectDashboard from './pages/ProjectDashboard';
-import Documents from './pages/Documents';
+import DocumentLibrary from './pages/DocumentLibrary';
+import SectionSources from './pages/SectionSources';
 import GenerationWizard from './pages/GenerationWizard';
 import ValidationReport from './pages/ValidationReport';
 import RegulatoryLibrary from './pages/RegulatoryLibrary';
-import PreviewDocuments from './pages/PreviewDocuments';
 import PreviewGenerate from './pages/PreviewGenerate';
 import PreviewValidation from './pages/PreviewValidation';
 
 const NAV_ITEMS_FULL = [
-  { to: 'documents', label: 'Documents', icon: Upload },
+  { to: 'documents', label: 'Sources', icon: FolderInput },
   { to: 'generate', label: 'Generate & Download', icon: Wand2 },
   { to: 'validation', label: 'Validation', icon: ShieldCheck },
   { to: 'regulatory', label: 'Regulatory Library', icon: BookOpen },
 ];
 
 const NAV_ITEMS_PREVIEW = [
-  { to: 'documents', label: 'Documents', icon: Upload },
+  { to: 'documents', label: 'Sources', icon: FolderInput },
   { to: 'generate', label: 'Generate & Download', icon: Wand2 },
   { to: 'validation', label: 'Validation', icon: ShieldCheck },
 ];
@@ -213,14 +213,14 @@ function CTDSectionShell({ sectionId, projectId }: { sectionId: string; projectI
           <Route path="/" element={<Navigate to={`${basePath}/documents`} replace />} />
           {isGenerable ? (
             <>
-              <Route path="/documents" element={<Documents />} />
+              <Route path="/documents" element={<SectionSources />} />
               <Route path="/generate" element={<GenerationWizard sectionId={sectionId} sectionNumber={section.number} sectionTitle={section.title} />} />
               <Route path="/validation" element={<ValidationReport />} />
               <Route path="/regulatory" element={<RegulatoryLibrary />} />
             </>
           ) : (
             <>
-              <Route path="/documents" element={<PreviewDocuments />} />
+              <Route path="/documents" element={<SectionSources />} />
               <Route path="/generate" element={<PreviewGenerate />} />
               <Route path="/validation" element={<PreviewValidation />} />
             </>
@@ -247,6 +247,7 @@ export default function App() {
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/project/:projectId" element={<ProjectDashboard />} />
+        <Route path="/project/:projectId/library" element={<DocumentLibrary />} />
         <Route path="/project/:projectId/ctd/:sectionId/*" element={<CTDSectionRouter />} />
 
         {/* Legacy routes */}

@@ -490,6 +490,7 @@ def _serialize_input(data: dict) -> str:
     conditions = data.get("conditions", [])
     attributes = data.get("attributes", [])
     documents = data.get("documents", [])
+    locked = data.get("locked_paragraphs", [])
 
     parts = [
         f"# PROJECT\nDrug substance: {project.get('name', 'Drug Substance')}\nDescription: {project.get('description', '') or '(none)'}",
@@ -546,7 +547,105 @@ def _serialize_input(data: dict) -> str:
     else:
         parts.append("# SOURCE DOCUMENTS\n(none provided)")
 
+    # Locked paragraphs — preserve these byte-exact in the output.
+    if locked:
+        locked_lines = [
+            "# LOCKED PARAGRAPHS (PRESERVE BYTE-EXACT)",
+            "The following paragraphs were locked by the user and MUST appear in the regenerated",
+            "output unchanged. Each entry shows the paragraph's data-pid and its required HTML.",
+            "Match by data-pid: the HTML of each listed paragraph in your output must equal the",
+            "HTML below, character for character. You MAY adapt the surrounding paragraphs to keep",
+            "natural flow, but locked content stays as-is.",
+            "",
+        ]
+        for item in locked:
+            pid = item.get("pid", "")
+            html_block = item.get("html", "")
+            if not pid or not html_block:
+                continue
+            locked_lines.append(f"## data-pid={pid}")
+            locked_lines.append(html_block)
+            locked_lines.append("")
+        parts.append("\n".join(locked_lines))
+
     return "\n\n".join(parts)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PARAGRAPH ID INJECTION
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# Every paragraph-level block in the generated HTML must carry a stable
+# `data-pid="p-<n>"` attribute. This is the anchor the frontend uses for:
+#   - Locking paragraphs (regeneration skips them)
+#   - Attaching comments
+#   - Diffing across regenerations (track changes)
+#
+# We post-process here rather than rely on the model so the IDs are always
+# present and sequential, regardless of how well the model followed instructions.
+
+_BLOCK_TAGS = ("p", "h1", "h2", "h3", "h4", "h5", "h6", "table", "ul", "ol", "blockquote", "pre")
+_BLOCK_OPEN_RE = re.compile(
+    r"<(" + "|".join(_BLOCK_TAGS) + r")(\s[^>]*)?>",
+    re.IGNORECASE,
+)
+
+
+def _enforce_locked_paragraphs(html: str, locked: list) -> str:
+    """Replace any paragraph in `html` whose data-pid matches a locked entry
+    with the locked HTML. Uses regex on opening-tag-to-closing-tag pairs
+    keyed by data-pid. Falls back silently if a locked pid isn't found in
+    the generated output.
+    """
+    for item in locked:
+        pid = item.get("pid", "") if isinstance(item, dict) else ""
+        target_html = item.get("html", "") if isinstance(item, dict) else ""
+        if not pid or not target_html:
+            continue
+        # Match the entire element (any block tag) carrying data-pid="pid".
+        # We don't need to know the tag — capture <tag ...data-pid="pid"...>...</tag>.
+        pattern = re.compile(
+            r'<(' + "|".join(_BLOCK_TAGS) + r')\b[^>]*\bdata-pid="' + re.escape(pid) + r'"[^>]*>.*?</\1>',
+            re.IGNORECASE | re.DOTALL,
+        )
+        if pattern.search(html):
+            html = pattern.sub(lambda _m: target_html, html, count=1)
+    return html
+
+
+def _inject_paragraph_ids(html: str) -> tuple[str, list[str]]:
+    """Ensure every block-level content element has a unique data-pid attribute.
+
+    Existing data-pid values are preserved. Missing IDs are assigned
+    sequentially as p-1, p-2, ... Returns the patched HTML plus the
+    ordered list of all pids in the document.
+    """
+    used = set(re.findall(r'data-pid="([^"]+)"', html))
+    counter = {"n": 0}
+    pids: list[str] = []
+
+    def next_pid() -> str:
+        while True:
+            counter["n"] += 1
+            candidate = f"p-{counter['n']}"
+            if candidate not in used:
+                used.add(candidate)
+                return candidate
+
+    def replace(match: "re.Match[str]") -> str:
+        tag = match.group(1)
+        attrs = match.group(2) or ""
+        if "data-pid" in attrs.lower():
+            existing = re.search(r'data-pid="([^"]+)"', attrs)
+            if existing:
+                pids.append(existing.group(1))
+            return match.group(0)
+        pid = next_pid()
+        pids.append(pid)
+        return f'<{tag} data-pid="{pid}"{attrs}>'
+
+    patched = _BLOCK_OPEN_RE.sub(replace, html)
+    return patched, pids
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -602,12 +701,24 @@ def generate(data: dict) -> dict:
         html = re.sub(r"^```(?:html)?\s*\n?", "", html)
         html = re.sub(r"\n?```\s*$", "", html)
 
+    # Defensive post-processing: re-apply any locked paragraphs that the
+    # model may have ignored. We replace by data-pid match — this guarantees
+    # the user-visible lock is honored even when the prompt wasn't followed.
+    locked_paragraphs = data.get("locked_paragraphs", []) or []
+    if locked_paragraphs:
+        html = _enforce_locked_paragraphs(html, locked_paragraphs)
+
+    # Inject stable paragraph IDs so the frontend editor can lock,
+    # comment on, and diff individual blocks.
+    html, pids = _inject_paragraph_ids(html)
+
     completed_at = datetime.now(timezone.utc)
 
     return {
         "run_id": run_id,
         "status": "completed",
         "html": html,
+        "pids": pids,
         "metadata": {
             "model": MODEL,
             "input_tokens": input_tokens,

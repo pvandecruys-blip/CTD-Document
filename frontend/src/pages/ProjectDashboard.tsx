@@ -20,6 +20,7 @@ import {
   FileStack,
   AlertCircle,
   FileUp,
+  Library,
 } from 'lucide-react';
 import { CTD_STRUCTURE, getLeafSections, getGenerableSections, type CTDSection } from '../config/ctdStructure';
 import { generation, documents } from '../api/client';
@@ -532,14 +533,29 @@ export default function ProjectDashboard() {
             <ArrowLeft size={16} />
             Back to Projects
           </button>
-          <div className="flex items-center gap-4">
-            <div className="p-3 bg-primary-600 rounded-xl">
-              <Shield className="text-white" size={24} />
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-4">
+              <div className="p-3 bg-primary-600 rounded-xl">
+                <Shield className="text-white" size={24} />
+              </div>
+              <div>
+                <h1 className="text-xl font-bold text-gray-900">{current.name}</h1>
+                <p className="text-sm text-gray-500">{current.description || 'Common Technical Document'}</p>
+              </div>
             </div>
-            <div>
-              <h1 className="text-xl font-bold text-gray-900">{current.name}</h1>
-              <p className="text-sm text-gray-500">{current.description || 'Common Technical Document'}</p>
-            </div>
+            <button
+              onClick={() => navigate(`/project/${current.id}/library`)}
+              className="inline-flex items-center gap-2 bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 hover:border-gray-300 px-4 py-2 rounded-lg text-sm font-medium transition-colors shadow-sm flex-shrink-0"
+              title="Open the project-wide document library"
+            >
+              <Library size={15} />
+              Document Library
+              {projectDocs.length > 0 && (
+                <span className="ml-1 text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500 font-medium">
+                  {projectDocs.length}
+                </span>
+              )}
+            </button>
           </div>
         </div>
       </header>

@@ -1,8 +1,11 @@
-import { useEffect, useState, useMemo } from 'react';
-import { ChevronRight, ChevronLeft, Wand2, Check, Download, Clock, CheckCircle2, XCircle, Loader2, Link2, FileUp } from 'lucide-react';
+import { useEffect, useState, useMemo, useCallback } from 'react';
+import { Link as RouterLink } from 'react-router-dom';
+import { ChevronRight, ChevronLeft, Wand2, Check, Download, Clock, CheckCircle2, XCircle, Loader2, Link2, FileUp, FolderInput } from 'lucide-react';
 import type { GenerationRun, GenerationStatus, DocumentFile } from '../types';
 import { useProject } from '../context/ProjectContext';
-import { generation, studies, lots, conditions, attributes, documents, type GenerateRequest } from '../api/client';
+import { generation, studies, lots, conditions, attributes, documents, paragraphs, type GenerateRequest } from '../api/client';
+import ParagraphEditor, { findChangedParagraphs, getParagraphHtml } from '../components/ParagraphEditor';
+import { downloadAsHtml, printAsPdf, downloadAsDocx } from '../lib/exportFormats';
 
 // Helper to get document texts from localStorage
 function getDocumentTexts(): Record<string, string> {
@@ -210,7 +213,10 @@ export default function GenerationWizard({ sectionId = 'S.7.3', sectionNumber = 
   const loadDocs = async () => {
     if (!current) return;
     try {
-      const data = await documents.list(current.id);
+      // Only documents explicitly tagged for this section feed generation.
+      // Untagged or other-section docs stay in the project library and must be
+      // tagged via the Sources tab before they show up here.
+      const data = await documents.listForSection(current.id, sectionId);
       setProjectDocs(data.items.filter((d) => d.source !== 'veeva'));
     } catch { /* */ }
   };
@@ -233,13 +239,16 @@ export default function GenerationWizard({ sectionId = 'S.7.3', sectionNumber = 
     if (!current) return;
     setGenerating(true);
     try {
-      // Fetch all project data to send to the generation API
+      // Fetch all project data to send to the generation API.
+      // Documents are filtered to the current section's tagged sources only —
+      // untagged or other-section documents are intentionally excluded so the
+      // model isn't fed irrelevant context.
       const [studyData, lotData, conditionData, attrData, docData] = await Promise.all([
         studies.list(current.id),
         lots.list(current.id),
         conditions.list(current.id),
         attributes.list(current.id),
-        documents.list(current.id),
+        documents.listForSection(current.id, sectionId),
       ]);
 
       // Get document texts from localStorage
@@ -295,6 +304,90 @@ export default function GenerationWizard({ sectionId = 'S.7.3', sectionNumber = 
     setStep(1);
   };
 
+  /**
+   * Regenerate using the same project data as the current run, but preserve
+   * the user's locked paragraphs. After the new run completes, compute a
+   * per-paragraph diff and record `pending_change` for every paragraph that
+   * actually changed (so the user can accept/reject the AI's edits).
+   */
+  const handleRegenerate = useCallback(async (lockedPids: string[]) => {
+    if (!current || !run) return;
+    const oldRunId = run.run_id;
+    const oldHtml = run.outputs?.html ? getGeneratedHtml(run.outputs.html) : null;
+    if (!oldHtml) return;
+
+    setGenerating(true);
+    try {
+      // Build the locked-paragraphs payload from the current HTML.
+      const lockedParagraphs = lockedPids
+        .map((pid) => {
+          const block = getParagraphHtml(oldHtml, pid);
+          return block ? { pid, html: block } : null;
+        })
+        .filter((x): x is { pid: string; html: string } => x !== null);
+
+      // Fetch the same sources used for the first generation.
+      const [studyData, lotData, conditionData, attrData, docData] = await Promise.all([
+        studies.list(current.id),
+        lots.list(current.id),
+        conditions.list(current.id),
+        attributes.list(current.id),
+        documents.listForSection(current.id, sectionId),
+      ]);
+
+      const docTexts = getDocumentTexts();
+      const request: GenerateRequest = {
+        section: sectionId,
+        project: {
+          id: current.id,
+          name: current.name,
+          description: current.description,
+        },
+        studies: studyData.items,
+        lots: lotData.items,
+        conditions: conditionData.items,
+        attributes: attrData.items,
+        documents: docData.items.filter((d) => d.source !== 'veeva').map((d) => ({
+          filename: d.original_filename,
+          extracted_text: docTexts[d.id] || '',
+          classification: d.classification,
+        })),
+        locked_paragraphs: lockedParagraphs,
+      };
+
+      const newRun = await generation.start(request);
+      const newRunId = newRun.run_id;
+      const newHtml = newRun.outputs?.html ? getGeneratedHtml(newRun.outputs.html) : null;
+
+      if (newHtml) {
+        // Carry over locks, version history, and comments.
+        paragraphs.cloneRun(oldRunId, newRunId);
+
+        // Per-paragraph diff: record pending_change for everything that
+        // actually changed AND wasn't locked. Push prior version into history.
+        const lockedSet = new Set(lockedPids);
+        const changes = findChangedParagraphs(oldHtml, newHtml);
+        for (const { pid, before, after } of changes) {
+          paragraphs.pushVersion(newRunId, pid, {
+            html: before,
+            created_at: new Date().toISOString(),
+            run_id: oldRunId,
+          });
+          if (!lockedSet.has(pid)) {
+            paragraphs.setPendingChange(newRunId, pid, before, after);
+          }
+        }
+      }
+
+      setRun(newRun);
+      await loadPastRuns();
+    } catch (err) {
+      console.error('Regenerate failed:', err);
+    } finally {
+      setGenerating(false);
+    }
+  }, [current, run, sectionId]);
+
   if (!current) {
     return (
       <div className="p-6 max-w-4xl mx-auto text-center py-16 bg-white rounded-lg border border-dashed border-gray-300">
@@ -304,107 +397,24 @@ export default function GenerationWizard({ sectionId = 'S.7.3', sectionNumber = 
     );
   }
 
-  // ── After generation: show big download card ────────────────────
+  // ── After generation: render the paragraph editor ────────────────
   if (run && run.status === 'completed') {
     return (
-      <div className="p-6 max-w-4xl mx-auto">
-        <h1 className="text-2xl font-bold text-gray-900 mb-6">Generate {sectionNumber}</h1>
-
-        {/* New documents banner */}
-        {newDocsInfo && (
-          <div className="mb-6 p-4 rounded-lg bg-amber-50 border border-amber-200 flex items-start gap-3">
-            <FileUp size={18} className="text-amber-500 flex-shrink-0 mt-0.5" />
-            <div className="flex-1">
-              <p className="text-sm font-medium text-amber-900">
-                {newDocsInfo.count} new document{newDocsInfo.count > 1 ? 's' : ''} uploaded since last generation
-              </p>
-              <p className="text-xs text-amber-700 mt-1">
-                {newDocsInfo.names.join(', ')}
-              </p>
-              <button
-                onClick={handleReset}
-                className="mt-2 inline-flex items-center gap-1.5 text-xs font-medium text-amber-800 hover:text-amber-950 bg-amber-100 hover:bg-amber-200 px-3 py-1.5 rounded-md transition-colors"
-              >
-                <Wand2 size={12} />
-                Regenerate with new documents
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Success card */}
-        <div className="bg-white rounded-xl border-2 border-green-200 p-8 text-center mb-8">
-          <div className="w-16 h-16 rounded-full bg-green-100 flex items-center justify-center mx-auto mb-4">
-            <CheckCircle2 size={32} className="text-green-600" />
-          </div>
-          <h2 className="text-lg font-semibold text-gray-900 mb-1">Document Generated</h2>
-          <p className="text-sm text-gray-500 mb-4">
-            {sectionNumber} {sectionTitle} — <span className="font-mono text-xs">{run.run_id.slice(0, 8)}</span>
-          </p>
-
-          {traceCount > 0 && (
-            <div className="mb-4 p-3 rounded-lg bg-blue-50 border border-blue-200 inline-flex items-center gap-2">
-              <Link2 size={14} className="text-blue-600" />
-              <span className="text-sm text-blue-700">{traceCount} source reference{traceCount > 1 ? 's' : ''} added to document</span>
-            </div>
-          )}
-
-          <div className="flex items-center justify-center gap-4 flex-wrap">
-            {run.outputs?.html && (
-              <button
-                onClick={() => downloadHtml(run.outputs!.html!, current?.name || 'Document', sectionNumber, sectionTitle)}
-                className="inline-flex items-center gap-3 bg-primary-600 text-white px-6 py-3 rounded-lg text-sm font-medium hover:bg-primary-700 shadow-sm transition-colors"
-              >
-                <Download size={18} />
-                Download HTML
-              </button>
-            )}
-          </div>
-
-          {run.token_usage && (
-            <p className="text-xs text-gray-400 mt-4">
-              Tokens used: {run.token_usage.input_tokens?.toLocaleString()} in / {run.token_usage.output_tokens?.toLocaleString()} out
-            </p>
-          )}
-        </div>
-
-        <div className="text-center">
-          <button
-            onClick={handleReset}
-            className="inline-flex items-center gap-2 text-sm text-primary-600 hover:text-primary-800 font-medium"
-          >
-            <Wand2 size={16} /> Generate another version
-          </button>
-        </div>
-
-        {/* Previous runs */}
-        {pastRuns.length > 1 && (
-          <div className="mt-10">
-            <h3 className="text-sm font-semibold text-gray-700 mb-3 uppercase tracking-wider">Previous Runs</h3>
-            <div className="space-y-3">
-              {pastRuns.filter(r => r.run_id !== run.run_id).map((r) => {
-                const s = STATUS_DISPLAY[r.status];
-                return (
-                  <div key={r.run_id} className="bg-white rounded-lg border border-gray-200 p-4 flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full ${s.color}`}>
-                        {s.icon} {s.label}
-                      </span>
-                      <span className="font-mono text-sm text-gray-600">{r.run_id.slice(0, 8)}</span>
-                      <span className="text-xs text-gray-400">{new Date(r.created_at).toLocaleString()}</span>
-                    </div>
-                    {r.outputs?.html && r.status === 'completed' && (
-                      <button onClick={() => downloadHtml(r.outputs!.html!, current?.name || 'Document', sectionNumber, sectionTitle)} className="inline-flex items-center gap-1.5 text-xs text-primary-600 hover:text-primary-800">
-                        <Download size={12} /> HTML
-                      </button>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
-      </div>
+      <EditorView
+        run={run}
+        sectionId={sectionId}
+        sectionNumber={sectionNumber}
+        sectionTitle={sectionTitle}
+        regenerating={generating}
+        traceCount={traceCount}
+        pastRuns={pastRuns}
+        newDocsInfo={newDocsInfo}
+        onReset={handleReset}
+        onRegenerate={async (lockedPids) => {
+          if (!current) return;
+          await handleRegenerate(lockedPids);
+        }}
+      />
     );
   }
 
@@ -415,6 +425,49 @@ export default function GenerationWizard({ sectionId = 'S.7.3', sectionNumber = 
       <p className="text-sm text-gray-500 mb-4">
         {sectionTitle} for <span className="font-medium">{current.name}</span>
       </p>
+
+      {/* No sources warning — blocks generation until at least one doc is tagged */}
+      {projectDocs.length === 0 && (
+        <div className="mb-6 p-4 rounded-lg bg-red-50 border border-red-200 flex items-start gap-3">
+          <FolderInput size={18} className="text-red-500 flex-shrink-0 mt-0.5" />
+          <div className="flex-1">
+            <p className="text-sm font-medium text-red-900">
+              No documents tagged for {sectionNumber} yet
+            </p>
+            <p className="text-xs text-red-700 mt-0.5">
+              Generation needs at least one source document tagged for this section.
+              Go to the Sources tab to upload or pick documents from the project library.
+            </p>
+            {current && (
+              <RouterLink
+                to={`/project/${current.id}/ctd/${sectionId}/documents`}
+                className="mt-2 inline-flex items-center gap-1.5 text-xs font-medium text-red-700 hover:text-red-900 bg-red-100 hover:bg-red-200 px-3 py-1.5 rounded-md transition-colors"
+              >
+                <FolderInput size={12} />
+                Open Sources
+              </RouterLink>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Sources summary */}
+      {projectDocs.length > 0 && (
+        <div className="mb-4 inline-flex items-center gap-2 text-xs text-gray-500">
+          <FolderInput size={12} className="text-gray-400" />
+          <span>
+            <span className="font-medium text-gray-700">{projectDocs.length}</span> document{projectDocs.length !== 1 ? 's' : ''} tagged for this section
+          </span>
+          {current && (
+            <RouterLink
+              to={`/project/${current.id}/ctd/${sectionId}/documents`}
+              className="text-primary-600 hover:text-primary-800 font-medium"
+            >
+              · Manage sources
+            </RouterLink>
+          )}
+        </div>
+      )}
 
       {/* New documents notification */}
       {newDocsInfo && (
@@ -507,7 +560,12 @@ export default function GenerationWizard({ sectionId = 'S.7.3', sectionNumber = 
             Next <ChevronRight size={16} />
           </button>
         ) : (
-          <button onClick={handleGenerate} disabled={generating} className="inline-flex items-center gap-2 bg-green-600 text-white px-5 py-2 rounded-md text-sm font-medium hover:bg-green-700 disabled:opacity-50">
+          <button
+            onClick={handleGenerate}
+            disabled={generating || projectDocs.length === 0}
+            title={projectDocs.length === 0 ? 'Tag at least one source document for this section first' : undefined}
+            className="inline-flex items-center gap-2 bg-green-600 text-white px-5 py-2 rounded-md text-sm font-medium hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
             <Wand2 size={16} /> {generating ? 'Generating...' : `Generate ${sectionNumber}`}
           </button>
         )}
@@ -540,6 +598,163 @@ export default function GenerationWizard({ sectionId = 'S.7.3', sectionNumber = 
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ─── Editor view (after generation) ──────────────────────────────────
+interface EditorViewProps {
+  run: GenerationRun;
+  sectionId: string;
+  sectionNumber: string;
+  sectionTitle: string;
+  regenerating: boolean;
+  traceCount: number;
+  pastRuns: GenerationRun[];
+  newDocsInfo: { count: number; names: string[] } | null;
+  onReset: () => void;
+  onRegenerate: (lockedPids: string[]) => Promise<void>;
+}
+
+function EditorView({ run, sectionId: _sectionId, sectionNumber, sectionTitle, regenerating, traceCount, pastRuns, newDocsInfo, onReset, onRegenerate }: EditorViewProps) {
+  const { current } = useProject();
+  const [html, setHtml] = useState<string | null>(null);
+  const [showRunList, setShowRunList] = useState(false);
+
+  useEffect(() => {
+    const stored = run.outputs?.html ? getGeneratedHtml(run.outputs.html) : null;
+    setHtml(stored);
+  }, [run.run_id, run.outputs?.html]);
+
+  const handleHtmlChange = useCallback((newHtml: string) => {
+    if (!run.outputs?.html) return;
+    setHtml(newHtml);
+    // Persist back to localStorage so reloads see the edited document.
+    const storage = JSON.parse(localStorage.getItem('ctd_generated_html') || '{}');
+    storage[run.outputs.html] = newHtml;
+    localStorage.setItem('ctd_generated_html', JSON.stringify(storage));
+  }, [run.outputs?.html]);
+
+  if (!html) {
+    return (
+      <div className="p-6 max-w-4xl mx-auto text-center py-16 bg-white rounded-lg border border-dashed border-gray-300">
+        <Loader2 className="mx-auto mb-3 text-gray-300 animate-spin" size={40} />
+        <p className="text-gray-500 text-sm">Loading generated document…</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col h-[calc(100vh-3.5rem)]">
+      {/* Header */}
+      <div className="px-6 py-3 bg-white border-b border-gray-200 flex items-center justify-between gap-3 flex-shrink-0">
+        <div className="min-w-0">
+          <h1 className="text-base font-semibold text-gray-900 truncate">
+            {sectionNumber} {sectionTitle}
+          </h1>
+          <div className="flex items-center gap-2 text-xs text-gray-500 mt-0.5">
+            <CheckCircle2 size={11} className="text-green-500" />
+            <span>Generated</span>
+            <span>·</span>
+            <span>{new Date(run.created_at).toLocaleString()}</span>
+            {traceCount > 0 && (
+              <>
+                <span>·</span>
+                <Link2 size={11} className="text-blue-500" />
+                <span>{traceCount} source ref{traceCount !== 1 ? 's' : ''}</span>
+              </>
+            )}
+            {run.token_usage && (
+              <>
+                <span>·</span>
+                <span className="text-gray-400">
+                  {run.token_usage.input_tokens?.toLocaleString()} in / {run.token_usage.output_tokens?.toLocaleString()} out
+                </span>
+              </>
+            )}
+          </div>
+        </div>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {pastRuns.length > 1 && (
+            <button
+              onClick={() => setShowRunList(!showRunList)}
+              className="inline-flex items-center gap-1.5 text-xs font-medium text-gray-600 hover:text-gray-900 bg-gray-100 hover:bg-gray-200 px-3 py-1.5 rounded-md transition-colors"
+            >
+              <Clock size={11} />
+              {pastRuns.length} runs
+            </button>
+          )}
+          <button
+            onClick={onReset}
+            className="inline-flex items-center gap-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-200 hover:bg-gray-50 px-3 py-1.5 rounded-md transition-colors"
+          >
+            <Wand2 size={11} />
+            New generation
+          </button>
+        </div>
+      </div>
+
+      {/* New documents banner */}
+      {newDocsInfo && (
+        <div className="px-6 py-2.5 bg-amber-50 border-b border-amber-100 flex items-center justify-between gap-3 flex-shrink-0">
+          <div className="flex items-center gap-2 text-xs">
+            <FileUp size={12} className="text-amber-500 flex-shrink-0" />
+            <span className="text-amber-900 font-medium">
+              {newDocsInfo.count} new document{newDocsInfo.count > 1 ? 's' : ''} since last generation
+            </span>
+            <span className="text-amber-700 truncate">{newDocsInfo.names.join(', ')}</span>
+          </div>
+        </div>
+      )}
+
+      {/* Past runs (collapsible) */}
+      {showRunList && pastRuns.length > 1 && (
+        <div className="px-6 py-3 bg-gray-50 border-b border-gray-200 max-h-40 overflow-y-auto flex-shrink-0">
+          <div className="space-y-1.5">
+            {pastRuns.map((r) => {
+              const s = STATUS_DISPLAY[r.status];
+              const isCurrent = r.run_id === run.run_id;
+              return (
+                <div
+                  key={r.run_id}
+                  className={`flex items-center justify-between gap-3 py-1.5 px-3 rounded-md text-xs ${isCurrent ? 'bg-primary-50 border border-primary-100' : 'bg-white border border-gray-200'}`}
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] ${s.color}`}>
+                      {s.icon} {s.label}
+                    </span>
+                    <span className="font-mono text-gray-700">{r.run_id.slice(0, 8)}</span>
+                    <span className="text-gray-400 truncate">{new Date(r.created_at).toLocaleString()}</span>
+                    {isCurrent && <span className="text-[10px] font-medium text-primary-600">Current</span>}
+                  </div>
+                  {r.outputs?.html && r.status === 'completed' && !isCurrent && (
+                    <button
+                      onClick={() => downloadHtml(r.outputs!.html!, current?.name || 'Document', sectionNumber, sectionTitle)}
+                      className="inline-flex items-center gap-1 text-gray-500 hover:text-primary-700"
+                    >
+                      <Download size={10} /> HTML
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Paragraph editor takes the remaining vertical space */}
+      <div className="flex-1 overflow-hidden">
+        <ParagraphEditor
+          runId={run.run_id}
+          html={html}
+          regenerating={regenerating}
+          onRegenerate={onRegenerate}
+          onDownloadHtml={() => downloadAsHtml(html, { projectName: current?.name || 'Document', sectionNumber, sectionTitle })}
+          onPrintPdf={() => printAsPdf(html, { projectName: current?.name || 'Document', sectionNumber, sectionTitle })}
+          onDownloadDocx={() => downloadAsDocx(html, { projectName: current?.name || 'Document', sectionNumber, sectionTitle })}
+          onHtmlChange={handleHtmlChange}
+        />
+      </div>
     </div>
   );
 }

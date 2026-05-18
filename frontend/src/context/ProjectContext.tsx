@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import type { Project } from '../types';
-import { projects } from '../api/client';
+import type { Project, DocumentFile } from '../types';
+import { projects, documents } from '../api/client';
 
 interface ProjectCtx {
   current: Project | null;
@@ -9,6 +9,16 @@ interface ProjectCtx {
   select: (p: Project) => void;
   selectById: (id: string) => Promise<void>;
   reload: () => Promise<void>;
+  /**
+   * Return the documents in the current project that are tagged for a
+   * given CTD section (e.g. "S.7.3"). Untagged documents are excluded.
+   * Returns [] if there is no current project.
+   */
+  getDocumentsForSection: (sectionId: string) => Promise<DocumentFile[]>;
+  /**
+   * Toggle the section tag on a document. Returns the updated document.
+   */
+  toggleDocumentTag: (docId: string, sectionId: string) => Promise<DocumentFile | null>;
 }
 
 const Ctx = createContext<ProjectCtx>({
@@ -18,6 +28,8 @@ const Ctx = createContext<ProjectCtx>({
   select: () => {},
   selectById: async () => {},
   reload: async () => {},
+  getDocumentsForSection: async () => [],
+  toggleDocumentTag: async () => null,
 });
 
 export function ProjectProvider({ children }: { children: React.ReactNode }) {
@@ -63,10 +75,35 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
     }
   }, [list]);
 
+  const getDocumentsForSection = useCallback(async (sectionId: string): Promise<DocumentFile[]> => {
+    if (!current) return [];
+    try {
+      const data = await documents.listForSection(current.id, sectionId);
+      return data.items;
+    } catch {
+      return [];
+    }
+  }, [current]);
+
+  const toggleDocumentTag = useCallback(async (docId: string, sectionId: string): Promise<DocumentFile | null> => {
+    if (!current) return null;
+    try {
+      const data = await documents.list(current.id);
+      const doc = data.items.find((d) => d.id === docId);
+      if (!doc) return null;
+      const has = (doc.section_tags || []).includes(sectionId);
+      return has
+        ? await documents.removeTag(current.id, docId, sectionId)
+        : await documents.addTag(current.id, docId, sectionId);
+    } catch {
+      return null;
+    }
+  }, [current]);
+
   useEffect(() => { reload(); }, []);
 
   return (
-    <Ctx.Provider value={{ current, list, loading, select: setCurrent, selectById, reload }}>
+    <Ctx.Provider value={{ current, list, loading, select: setCurrent, selectById, reload, getDocumentsForSection, toggleDocumentTag }}>
       {children}
     </Ctx.Provider>
   );
