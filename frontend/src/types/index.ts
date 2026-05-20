@@ -489,6 +489,33 @@ export interface ParagraphState {
   };
 }
 
+// ── Activity log (change history) ──────────────────────────────────
+
+export type ActivityAction =
+  | 'generated'
+  | 'regenerated'
+  | 'edited'
+  | 'locked'
+  | 'unlocked'
+  | 'commented'
+  | 'comment_status'
+  | 'accepted_change'
+  | 'rejected_change';
+
+export interface ActivityEntry {
+  id: string;
+  run_id: string;
+  /** Who performed the action. Currently a placeholder ("Local User");
+   * will be populated from the auth layer once real login exists. */
+  actor: string;
+  action: ActivityAction;
+  /** Affected paragraph id, when applicable. */
+  pid?: string;
+  /** Short human-readable description. */
+  detail?: string;
+  created_at: string;
+}
+
 // ── Veeva Vault ───────────────────────────────────────────────────
 
 export type VeevaDocStatus = 'steady_state' | 'update_available' | 'new';

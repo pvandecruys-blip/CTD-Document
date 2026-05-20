@@ -3,7 +3,7 @@ import { Link as RouterLink } from 'react-router-dom';
 import { ChevronRight, ChevronLeft, Wand2, Check, Clock, CheckCircle2, Loader2, Link2, FileUp, FolderInput } from 'lucide-react';
 import type { GenerationRun, DocumentFile } from '../types';
 import { useProject } from '../context/ProjectContext';
-import { generation, studies, lots, conditions, attributes, documents, paragraphs, type GenerateRequest } from '../api/client';
+import { generation, studies, lots, conditions, attributes, documents, paragraphs, activity, type GenerateRequest } from '../api/client';
 import ParagraphEditor, { findChangedParagraphs, getParagraphHtml } from '../components/ParagraphEditor';
 import RunHistory from '../components/RunHistory';
 import { downloadAsHtml, printAsPdf, downloadAsDocx } from '../lib/exportFormats';
@@ -365,6 +365,10 @@ export default function GenerationWizard({ sectionId = 'S.7.3', sectionNumber = 
         }
       }
 
+      activity.log(result.run_id, 'generated', {
+        detail: `${docData.items.filter((d) => d.source !== 'veeva').length} source document(s)`,
+      });
+
       setRun(result);
       await loadPastRuns();
     } catch { /* */ } finally {
@@ -433,8 +437,9 @@ export default function GenerationWizard({ sectionId = 'S.7.3', sectionNumber = 
       const newHtml = newRun.outputs?.html ? getGeneratedHtml(newRun.outputs.html) : null;
 
       if (newHtml) {
-        // Carry over locks, version history, and comments.
+        // Carry over locks, version history, comments, and activity log.
         paragraphs.cloneRun(oldRunId, newRunId);
+        activity.clone(oldRunId, newRunId);
 
         // Per-paragraph diff: record pending_change for everything that
         // actually changed AND wasn't locked. Push prior version into history.
@@ -451,6 +456,10 @@ export default function GenerationWizard({ sectionId = 'S.7.3', sectionNumber = 
           }
         }
       }
+
+      activity.log(newRunId, 'regenerated', {
+        detail: lockedPids.length > 0 ? `${lockedPids.length} paragraph(s) preserved` : undefined,
+      });
 
       setRun(newRun);
       await loadPastRuns();

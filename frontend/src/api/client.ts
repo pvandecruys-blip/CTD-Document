@@ -24,6 +24,8 @@ import type {
   ParagraphVersion,
   ParagraphState,
   CommentStatus,
+  ActivityEntry,
+  ActivityAction,
 } from '../types';
 
 // ── Storage Keys ────────────────────────────────────────────────────
@@ -1681,6 +1683,9 @@ export const paragraphs = {
     }
   },
 
+  /** Copy the activity log across a regenerate as well (see cloneRun). */
+  // (defined on the `activity` export below; cloneRun handles paragraph state)
+
   /**
    * Copy paragraph state (locks, versions, comments) from one run to another.
    * Used on regenerate so the new run inherits the user's prior edits — locks
@@ -1712,6 +1717,73 @@ export const paragraphs = {
       }
       comments[toRunId] = dst;
       setStorage(PARAGRAPH_COMMENTS_KEY, comments);
+    }
+  },
+};
+
+// ── Activity log (change history) ──────────────────────────────────
+//
+// Records every paragraph-level action so the editor can show a
+// chronological "who did what, when" feed. The `actor` is currently a
+// placeholder ("Local User") — getCurrentActor() is the single seam to
+// wire a real authenticated identity through once login exists.
+
+const ACTIVITY_LOG_KEY = 'ctd_activity_log';
+type ActivityStore = Record<string /* runId */, ActivityEntry[]>;
+
+function loadActivity(): ActivityStore {
+  return getStorage<ActivityStore>(ACTIVITY_LOG_KEY, {});
+}
+
+/** The acting user. Replace the body with the real auth identity later;
+ * every activity entry flows through here so attribution upgrades in one place. */
+export function getCurrentActor(): string {
+  return 'Local User';
+}
+
+export const activity = {
+  /** Append an entry to a run's activity log. */
+  log: (runId: string, action: ActivityAction, opts?: { pid?: string; detail?: string }): ActivityEntry => {
+    const all = loadActivity();
+    if (!all[runId]) all[runId] = [];
+    const entry: ActivityEntry = {
+      id: generateId('act'),
+      run_id: runId,
+      actor: getCurrentActor(),
+      action,
+      pid: opts?.pid,
+      detail: opts?.detail,
+      created_at: new Date().toISOString(),
+    };
+    all[runId].push(entry);
+    setStorage(ACTIVITY_LOG_KEY, all);
+    return entry;
+  },
+
+  /** All entries for a run, newest first. */
+  list: (runId: string): ActivityEntry[] => {
+    const all = loadActivity();
+    return [...(all[runId] || [])].sort(
+      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+    );
+  },
+
+  /** Carry the log across a regenerate so history is continuous. */
+  clone: (fromRunId: string, toRunId: string): void => {
+    const all = loadActivity();
+    const src = all[fromRunId];
+    if (!src || src.length === 0) return;
+    const dst = all[toRunId] || [];
+    for (const e of src) dst.push({ ...e, id: generateId('act'), run_id: toRunId });
+    all[toRunId] = dst;
+    setStorage(ACTIVITY_LOG_KEY, all);
+  },
+
+  clearRun: (runId: string): void => {
+    const all = loadActivity();
+    if (all[runId]) {
+      delete all[runId];
+      setStorage(ACTIVITY_LOG_KEY, all);
     }
   },
 };

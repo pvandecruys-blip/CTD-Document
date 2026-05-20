@@ -16,9 +16,11 @@ import {
   FileText,
   Printer,
   FileType,
+  Activity,
+  MessageSquarePlus,
 } from 'lucide-react';
-import type { ParagraphComment, ParagraphState, CommentStatus } from '../types';
-import { paragraphs } from '../api/client';
+import type { ParagraphComment, ParagraphState, CommentStatus, ActivityEntry } from '../types';
+import { paragraphs, activity } from '../api/client';
 
 // ─── Helpers ─────────────────────────────────────────────────────────
 
@@ -139,6 +141,8 @@ export default function ParagraphEditor({ runId, html, onRegenerate, onDownloadH
   const [hoverPos, setHoverPos] = useState<{ top: number; left: number } | null>(null);
   const [editingPid, setEditingPid] = useState<string | null>(null);
   const [downloadOpen, setDownloadOpen] = useState(false);
+  const [showActivity, setShowActivity] = useState(false);
+  const [activityLog, setActivityLog] = useState<ActivityEntry[]>([]);
   const downloadMenuRef = useRef<HTMLDivElement>(null);
   // Track each paragraph's HTML at the moment editing started, so we can
   // detect whether the user actually changed anything on blur.
@@ -164,11 +168,13 @@ export default function ParagraphEditor({ runId, html, onRegenerate, onDownloadH
   useEffect(() => {
     setStates(paragraphs.getStates(runId));
     setComments(paragraphs.getComments(runId));
+    setActivityLog(activity.list(runId));
   }, [runId]);
 
   const refresh = useCallback(() => {
     setStates(paragraphs.getStates(runId));
     setComments(paragraphs.getComments(runId));
+    setActivityLog(activity.list(runId));
   }, [runId]);
 
   // Decorate rendered paragraphs with state classes + manage contenteditable.
@@ -238,6 +244,7 @@ export default function ParagraphEditor({ runId, html, onRegenerate, onDownloadH
         created_at: new Date().toISOString(),
         run_id: runId, // user-initiated edit, no separate regen run
       });
+      activity.log(runId, 'edited', { pid });
 
       // Update the full document HTML and notify parent
       const updatedFull = replaceParagraph(localHtml, pid, newHtml);
@@ -272,24 +279,28 @@ export default function ParagraphEditor({ runId, html, onRegenerate, onDownloadH
     const target = (e.target as HTMLElement).closest('[data-pid]') as HTMLElement | null;
     if (!target) return;
     const pid = target.getAttribute('data-pid');
-    if (pid) setSelectedPid(pid);
+    if (pid) { setSelectedPid(pid); setShowActivity(false); }
   };
 
   // ─── Actions ──────────────────────────────────────────────────────
   const toggleLock = (pid: string) => {
     const current = states[pid]?.locked || false;
     paragraphs.setLocked(runId, pid, !current);
+    activity.log(runId, current ? 'unlocked' : 'locked', { pid });
     refresh();
   };
 
   const handleAddComment = (pid: string, text: string) => {
     if (!text.trim()) return;
     paragraphs.addComment(runId, pid, text.trim());
+    activity.log(runId, 'commented', { pid, detail: text.trim().slice(0, 80) });
     refresh();
   };
 
   const handleUpdateCommentStatus = (commentId: string, status: CommentStatus) => {
     paragraphs.setCommentStatus(runId, commentId, status);
+    const c = comments.find((x) => x.id === commentId);
+    activity.log(runId, 'comment_status', { pid: c?.pid, detail: `marked ${status.replace('_', ' ')}` });
     refresh();
   };
 
@@ -301,6 +312,7 @@ export default function ParagraphEditor({ runId, html, onRegenerate, onDownloadH
   const handleAcceptChange = (pid: string) => {
     // Keep current content (after_html), just clear the pending flag.
     paragraphs.clearPendingChange(runId, pid);
+    activity.log(runId, 'accepted_change', { pid });
     refresh();
   };
 
@@ -310,6 +322,7 @@ export default function ParagraphEditor({ runId, html, onRegenerate, onDownloadH
     const newHtml = replaceParagraph(localHtml, pid, change.before_html);
     setLocalHtml(newHtml);
     paragraphs.clearPendingChange(runId, pid);
+    activity.log(runId, 'rejected_change', { pid });
     refresh();
     onHtmlChange?.(newHtml);
   };
@@ -383,6 +396,21 @@ export default function ParagraphEditor({ runId, html, onRegenerate, onDownloadH
           )}
         </div>
         <div className="flex items-center gap-2">
+          <button
+            onClick={() => { setShowActivity((v) => !v); setSelectedPid(null); }}
+            className={`inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-md transition-colors ${
+              showActivity ? 'bg-gray-800 text-white' : 'text-gray-700 bg-white border border-gray-200 hover:bg-gray-50'
+            }`}
+            title="Change history for this run"
+          >
+            <Activity size={12} />
+            Activity
+            {activityLog.length > 0 && (
+              <span className={`text-[10px] px-1 rounded ${showActivity ? 'bg-white/20' : 'bg-gray-100 text-gray-500'}`}>
+                {activityLog.length}
+              </span>
+            )}
+          </button>
           {onRegenerate && (
             <button
               onClick={() => onRegenerate(lockedPids)}
@@ -515,8 +543,30 @@ export default function ParagraphEditor({ runId, html, onRegenerate, onDownloadH
           )}
         </div>
 
+        {/* Right drawer: activity feed */}
+        {showActivity && (
+          <div className="w-80 flex-shrink-0 border-l border-gray-200 bg-white flex flex-col">
+            <div className="px-4 py-3 border-b border-gray-200 bg-gray-50 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Activity size={14} className="text-gray-500" />
+                <span className="text-sm font-medium text-gray-700">Activity</span>
+                <span className="text-[10px] text-gray-400">{activityLog.length}</span>
+              </div>
+              <button onClick={() => setShowActivity(false)} className="text-gray-300 hover:text-gray-500">
+                <X size={16} />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-3">
+              <ActivityFeed entries={activityLog} onJumpToParagraph={(pid) => { setSelectedPid(pid); setShowActivity(false); }} />
+            </div>
+            <div className="px-4 py-2 border-t border-gray-100 text-[10px] text-gray-400">
+              Actor attribution is a placeholder until login is added.
+            </div>
+          </div>
+        )}
+
         {/* Right drawer: paragraph details */}
-        {selectedPid && (
+        {!showActivity && selectedPid && (
           <div className="w-80 flex-shrink-0 border-l border-gray-200 bg-white flex flex-col">
             <div className="px-4 py-3 border-b border-gray-200 bg-gray-50 flex items-center justify-between">
               <div>
@@ -669,6 +719,75 @@ function CommentList({
         </div>
       ))}
     </div>
+  );
+}
+
+// ─── Activity feed ───────────────────────────────────────────────────
+
+const ACTION_DISPLAY: Record<string, { label: string; icon: React.ReactNode; color: string }> = {
+  generated: { label: 'Generated document', icon: <Wand2 size={12} />, color: 'text-green-600' },
+  regenerated: { label: 'Regenerated', icon: <Wand2 size={12} />, color: 'text-primary-600' },
+  edited: { label: 'Edited paragraph', icon: <Pencil size={12} />, color: 'text-blue-600' },
+  locked: { label: 'Locked paragraph', icon: <Lock size={12} />, color: 'text-indigo-600' },
+  unlocked: { label: 'Unlocked paragraph', icon: <Unlock size={12} />, color: 'text-gray-500' },
+  commented: { label: 'Added comment', icon: <MessageSquarePlus size={12} />, color: 'text-amber-600' },
+  comment_status: { label: 'Updated comment status', icon: <MessageSquare size={12} />, color: 'text-amber-600' },
+  accepted_change: { label: 'Accepted change', icon: <Check size={12} />, color: 'text-green-600' },
+  rejected_change: { label: 'Rejected change', icon: <X size={12} />, color: 'text-red-600' },
+};
+
+function timeAgo(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime();
+  const min = Math.floor(diff / 60000);
+  if (min < 1) return 'just now';
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  const d = Math.floor(hr / 24);
+  return `${d}d ago`;
+}
+
+function ActivityFeed({ entries, onJumpToParagraph }: { entries: ActivityEntry[]; onJumpToParagraph: (pid: string) => void }) {
+  if (entries.length === 0) {
+    return <p className="text-xs text-gray-400 italic text-center py-6">No activity recorded yet.</p>;
+  }
+  return (
+    <ol className="relative border-l border-gray-200 ml-2 space-y-3">
+      {entries.map((e) => {
+        const d = ACTION_DISPLAY[e.action] || { label: e.action, icon: <Activity size={12} />, color: 'text-gray-500' };
+        return (
+          <li key={e.id} className="ml-4">
+            <span className={`absolute -left-[7px] flex items-center justify-center w-3.5 h-3.5 rounded-full bg-white border border-gray-300 ${d.color}`} />
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <div className={`flex items-center gap-1.5 text-xs font-medium ${d.color}`}>
+                  {d.icon}
+                  <span className="text-gray-800">{d.label}</span>
+                </div>
+                <div className="text-[11px] text-gray-500 mt-0.5">
+                  <span className="font-medium text-gray-600">{e.actor}</span>
+                  {e.pid && (
+                    <>
+                      {' · '}
+                      <button
+                        onClick={() => onJumpToParagraph(e.pid!)}
+                        className="font-mono text-primary-500 hover:text-primary-700 hover:underline"
+                      >
+                        {e.pid}
+                      </button>
+                    </>
+                  )}
+                </div>
+                {e.detail && <div className="text-[10px] text-gray-400 mt-0.5 truncate">{e.detail}</div>}
+              </div>
+              <span className="text-[10px] text-gray-400 whitespace-nowrap flex-shrink-0" title={new Date(e.created_at).toLocaleString()}>
+                {timeAgo(e.created_at)}
+              </span>
+            </div>
+          </li>
+        );
+      })}
+    </ol>
   );
 }
 
