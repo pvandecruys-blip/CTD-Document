@@ -7,16 +7,115 @@ import {
   FileUp,
   RefreshCw,
   Library,
-  Plus,
   Minus,
   ChevronDown,
   ChevronUp,
+  Cloud,
+  Download,
+  History,
 } from 'lucide-react';
 import type { DocumentFile } from '../types';
 import { useProject } from '../context/ProjectContext';
 import { documents } from '../api/client';
 import { extractTextFromFile, collectDroppedFiles } from '../lib/fileText';
 import { findSection } from '../config/ctdStructure';
+
+// ─── Veeva Vault — visual mockup only (not wired to any backend) ─────
+// Static demo data illustrating a Veeva Vault connection from which
+// documents could be retrieved. No sync logic is attached.
+const VEEVA_MOCK_DOCS = [
+  { id: 'v1', name: 'Stability Protocol – Long Term', number: 'PROT-STAB-001', version: '3.0', status: 'steady_state' },
+  { id: 'v2', name: 'PPQ Summary Report', number: 'RPT-VAL-001', version: '2.0', status: 'update_available' },
+  { id: 'v3', name: 'Certificate of Analysis – Batch 1001', number: 'COA-1001', version: '1.0', status: 'steady_state' },
+  { id: 'v4', name: 'Forced Degradation Study', number: 'RPT-STAB-003', version: '1.2', status: 'new' },
+];
+
+const VEEVA_STATUS_DISPLAY: Record<string, { label: string; color: string }> = {
+  steady_state: { label: 'Up to date', color: 'bg-green-100 text-green-700' },
+  update_available: { label: 'Update Available', color: 'bg-amber-100 text-amber-700' },
+  new: { label: 'New', color: 'bg-blue-100 text-blue-700' },
+};
+
+function VeevaVaultMock() {
+  const [open, setOpen] = useState(true);
+  const updates = VEEVA_MOCK_DOCS.filter((d) => d.status !== 'steady_state').length;
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 mb-6 overflow-hidden">
+      <button
+        onClick={() => setOpen(!open)}
+        className="w-full flex items-center justify-between px-5 py-3.5 hover:bg-gray-50 transition-colors"
+      >
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center">
+            <Cloud size={16} className="text-white" />
+          </div>
+          <div className="text-left">
+            <span className="text-sm font-semibold text-gray-900">Veeva Vault</span>
+            <span className="ml-2 text-[10px] px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-medium">Connected</span>
+            <span className="ml-1.5 text-[10px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 font-medium">Preview</span>
+          </div>
+        </div>
+        <div className="flex items-center gap-3">
+          {updates > 0 && (
+            <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-medium">{updates} updates</span>
+          )}
+          {open ? <ChevronUp size={16} className="text-gray-400" /> : <ChevronDown size={16} className="text-gray-400" />}
+        </div>
+      </button>
+
+      {open && (
+        <div className="border-t border-gray-100">
+          <table className="min-w-full divide-y divide-gray-100 text-sm">
+            <thead className="bg-gray-50/50">
+              <tr>
+                <th className="px-4 py-2.5 text-left font-medium text-gray-500 text-xs">Document</th>
+                <th className="px-4 py-2.5 text-left font-medium text-gray-500 text-xs">Doc Number</th>
+                <th className="px-4 py-2.5 text-left font-medium text-gray-500 text-xs">Vault Ver.</th>
+                <th className="px-4 py-2.5 text-left font-medium text-gray-500 text-xs">Status</th>
+                <th className="px-4 py-2.5"></th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-50">
+              {VEEVA_MOCK_DOCS.map((doc) => {
+                const st = VEEVA_STATUS_DISPLAY[doc.status] || VEEVA_STATUS_DISPLAY.steady_state;
+                return (
+                  <tr key={doc.id} className="hover:bg-gray-50/50">
+                    <td className="px-4 py-2.5">
+                      <div className="flex items-center gap-2">
+                        <FileText size={14} className="text-blue-400 flex-shrink-0" />
+                        <span className="text-gray-900 text-sm font-medium">{doc.name}</span>
+                      </div>
+                    </td>
+                    <td className="px-4 py-2.5"><span className="font-mono text-xs text-gray-500">{doc.number}</span></td>
+                    <td className="px-4 py-2.5"><span className="font-mono text-xs text-gray-900 font-medium">v{doc.version}</span></td>
+                    <td className="px-4 py-2.5">
+                      <span className={`inline-flex text-[10px] px-2 py-0.5 rounded-full font-medium ${st.color}`}>{st.label}</span>
+                    </td>
+                    <td className="px-4 py-2.5 text-right">
+                      <div className="flex items-center gap-2 justify-end">
+                        <span className="text-gray-300" title="Version history (preview)"><History size={14} /></span>
+                        <span
+                          className="inline-flex items-center gap-1 text-[11px] font-medium text-gray-400 bg-gray-100 px-2.5 py-1 rounded-md cursor-not-allowed"
+                          title="Demo only — Veeva retrieval is not wired up"
+                        >
+                          <Download size={11} /> Retrieve
+                        </span>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          <div className="px-5 py-2 bg-gray-50/50 border-t border-gray-100 text-[10px] text-gray-400">
+            Visual preview — connecting a real Veeva Vault would let you retrieve these documents directly into the project.
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function SectionSources() {
   const { current, reload: reloadProjects } = useProject();
@@ -27,7 +126,6 @@ export default function SectionSources() {
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
-  const [libraryOpen, setLibraryOpen] = useState(false);
   const [uploadQueue, setUploadQueue] = useState<{ name: string; status: 'pending' | 'uploading' | 'done' | 'error' }[]>([]);
 
   const pid = current?.id;
@@ -47,10 +145,6 @@ export default function SectionSources() {
 
   const sectionDocs = useMemo(
     () => allDocs.filter((d) => d.section_tags?.includes(sectionId || '')),
-    [allDocs, sectionId],
-  );
-  const otherDocs = useMemo(
-    () => allDocs.filter((d) => !d.section_tags?.includes(sectionId || '')),
     [allDocs, sectionId],
   );
 
@@ -85,12 +179,6 @@ export default function SectionSources() {
     setDragOver(false);
     const files = await collectDroppedFiles(e, ['.pdf', '.docx', '.doc', '.xlsx', '.xls']);
     if (files.length > 0) uploadFiles(files);
-  };
-
-  const handleAddToSection = async (docId: string) => {
-    if (!pid || !sectionId) return;
-    await documents.addTag(pid, docId, sectionId);
-    await load();
   };
 
   const handleRemoveFromSection = async (docId: string) => {
@@ -128,6 +216,9 @@ export default function SectionSources() {
           Open full library
         </Link>
       </div>
+
+      {/* Veeva Vault — visual mockup */}
+      <VeevaVaultMock />
 
       {/* Drop zone — auto-tags with current section */}
       <div
@@ -188,7 +279,7 @@ export default function SectionSources() {
           <div className="text-center py-6 text-gray-400 text-sm">Loading…</div>
         ) : sectionDocs.length === 0 ? (
           <div className="text-center py-6 bg-white rounded-lg border border-dashed border-gray-200 text-sm text-gray-400">
-            No documents tagged for this section yet. Upload above, or pick from the library below.
+            No documents tagged for this section yet. Drop files above, or tag documents from the full library.
           </div>
         ) : (
           <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
@@ -236,78 +327,6 @@ export default function SectionSources() {
         )}
       </div>
 
-      {/* Pick from library */}
-      <div>
-        <button
-          onClick={() => setLibraryOpen(!libraryOpen)}
-          className="w-full flex items-center justify-between bg-white rounded-lg border border-gray-200 px-4 py-3 hover:bg-gray-50 transition-colors"
-        >
-          <div className="flex items-center gap-2">
-            <Library size={14} className="text-gray-400" />
-            <span className="text-sm font-medium text-gray-700">Add from library</span>
-            <span className="text-xs text-gray-400">({otherDocs.length} available)</span>
-          </div>
-          {libraryOpen ? <ChevronUp size={16} className="text-gray-400" /> : <ChevronDown size={16} className="text-gray-400" />}
-        </button>
-
-        {libraryOpen && (
-          <div className="mt-2 bg-white rounded-lg border border-gray-200 overflow-hidden">
-            {otherDocs.length === 0 ? (
-              <div className="py-6 text-center text-sm text-gray-400">
-                No other documents in the project library yet.
-              </div>
-            ) : (
-              <table className="min-w-full divide-y divide-gray-200 text-sm">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-4 py-2.5 text-left font-medium text-gray-500 text-xs">File</th>
-                    <th className="px-4 py-2.5 text-left font-medium text-gray-500 text-xs">Classification</th>
-                    <th className="px-4 py-2.5 text-left font-medium text-gray-500 text-xs">Other Tags</th>
-                    <th className="px-4 py-2.5"></th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100">
-                  {otherDocs.map((d) => (
-                    <tr key={d.id} className="hover:bg-gray-50 group">
-                      <td className="px-4 py-2.5">
-                        <div className="flex items-center gap-2">
-                          <FileText size={14} className="text-gray-400 flex-shrink-0" />
-                          <span className="text-gray-700 text-sm">{d.original_filename}</span>
-                        </div>
-                      </td>
-                      <td className="px-4 py-2.5">
-                        <span className="text-xs text-gray-500">{d.classification.replace(/_/g, ' ')}</span>
-                      </td>
-                      <td className="px-4 py-2.5">
-                        {!d.section_tags || d.section_tags.length === 0 ? (
-                          <span className="text-[10px] text-gray-300 italic">Untagged</span>
-                        ) : (
-                          <div className="flex flex-wrap gap-1">
-                            {d.section_tags.map((t) => (
-                              <span key={t} className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-gray-100 text-gray-600">
-                                {findSection(t)?.number || t}
-                              </span>
-                            ))}
-                          </div>
-                        )}
-                      </td>
-                      <td className="px-4 py-2.5 text-right">
-                        <button
-                          onClick={() => handleAddToSection(d.id)}
-                          className="inline-flex items-center gap-1 text-[11px] font-medium text-primary-600 hover:text-primary-800 bg-primary-50 hover:bg-primary-100 px-2 py-1 rounded transition-colors"
-                        >
-                          <Plus size={11} />
-                          Add to section
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </div>
-        )}
-      </div>
     </div>
   );
 }
