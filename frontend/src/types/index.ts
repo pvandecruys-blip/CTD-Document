@@ -208,10 +208,31 @@ export interface GenerationOptions {
   include_traceability: boolean;
 }
 
+export interface GenerationRunSource {
+  filename: string;
+  classification: string;
+  size_bytes?: number;
+}
+
+export interface GenerationAudit {
+  /** Display name of the user who triggered the run. */
+  generated_by: string;
+  /** Model that produced the output (e.g. claude-opus-4-5). */
+  model?: string;
+  /** Snapshot of the source documents fed to this run. */
+  sources: GenerationRunSource[];
+  /** How many paragraphs were locked (preserved) at generation time. */
+  locked_paragraph_count?: number;
+  /** Whether this run was a regeneration of a prior run, and of which. */
+  regenerated_from?: string;
+}
+
 export interface GenerationRun {
   run_id: string;
   section_id?: string;
   status: GenerationStatus;
+  /** Optional human-friendly label (e.g. "Draft 2", "Post-QA"). */
+  label?: string;
   outputs?: {
     pdf?: string;
     html?: string;
@@ -222,6 +243,8 @@ export interface GenerationRun {
     input_tokens: number;
     output_tokens: number;
   };
+  /** Audit metadata captured at generation time. */
+  audit?: GenerationAudit;
   created_at: string;
   completed_at?: string;
 }

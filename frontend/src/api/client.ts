@@ -786,6 +786,17 @@ export const generation = {
           input_tokens: result.metadata?.input_tokens || 0,
           output_tokens: result.metadata?.output_tokens || 0,
         },
+        audit: {
+          generated_by: 'Local User',
+          model: result.metadata?.model,
+          sources: req.documents.map((d) => ({
+            filename: d.filename,
+            classification: d.classification,
+            size_bytes: d.extracted_text.length,
+          })),
+          locked_paragraph_count: req.locked_paragraphs?.length || 0,
+          regenerated_from: req.locked_paragraphs && req.locked_paragraphs.length > 0 ? 'prior run' : undefined,
+        },
       };
 
       // Save generation run
@@ -848,6 +859,16 @@ export const generation = {
       token_usage: {
         input_tokens: Math.floor(40000 + Math.random() * 10000),
         output_tokens: Math.floor(10000 + Math.random() * 5000),
+      },
+      audit: {
+        generated_by: 'Local User',
+        model: 'mock (API unavailable)',
+        sources: req.documents.map((d) => ({
+          filename: d.filename,
+          classification: d.classification,
+          size_bytes: d.extracted_text.length,
+        })),
+        locked_paragraph_count: req.locked_paragraphs?.length || 0,
       },
     };
 

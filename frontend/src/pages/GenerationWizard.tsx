@@ -1,10 +1,11 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
-import { ChevronRight, ChevronLeft, Wand2, Check, Download, Clock, CheckCircle2, XCircle, Loader2, Link2, FileUp, FolderInput } from 'lucide-react';
-import type { GenerationRun, GenerationStatus, DocumentFile } from '../types';
+import { ChevronRight, ChevronLeft, Wand2, Check, Clock, CheckCircle2, Loader2, Link2, FileUp, FolderInput } from 'lucide-react';
+import type { GenerationRun, DocumentFile } from '../types';
 import { useProject } from '../context/ProjectContext';
 import { generation, studies, lots, conditions, attributes, documents, paragraphs, type GenerateRequest } from '../api/client';
 import ParagraphEditor, { findChangedParagraphs, getParagraphHtml } from '../components/ParagraphEditor';
+import RunHistory from '../components/RunHistory';
 import { downloadAsHtml, printAsPdf, downloadAsDocx } from '../lib/exportFormats';
 
 // Helper to get document texts from localStorage
@@ -26,47 +27,6 @@ function getGeneratedHtml(runId: string): string | null {
   } catch {
     return null;
   }
-}
-
-// Download HTML file
-function downloadHtml(runId: string, projectName: string, sectionNumber: string, sectionTitle: string) {
-  let html = getGeneratedHtml(runId);
-  if (!html) {
-    alert('HTML content not found. Please regenerate the document.');
-    return;
-  }
-
-  // If stored HTML is just body content (no full document wrapper), wrap it
-  const trimmed = html.trim().toLowerCase();
-  if (!trimmed.startsWith('<!doctype') && !trimmed.startsWith('<html')) {
-    html = `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <title>${sectionNumber} – ${sectionTitle}</title>
-  <style>
-    body { font-family: 'Times New Roman', Times, serif; max-width: 210mm; margin: 0 auto; padding: 40px 30px; color: #1a1a1a; line-height: 1.6; }
-    table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 11px; }
-    th, td { border: 1px solid #999; padding: 6px 8px; text-align: left; }
-    th { background: #f0f0f0; font-weight: bold; }
-    h1, h2, h3, h4 { color: #1a1a1a; }
-  </style>
-</head>
-<body>
-${html}
-</body>
-</html>`;
-  }
-
-  const blob = new Blob([html], { type: 'text/html' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `${projectName.replace(/[^a-z0-9]/gi, '_')}_${sectionNumber}_${sectionTitle.replace(/[^a-z0-9]/gi, '_')}.html`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
 }
 
 // ── Client-side source traceability (no API call) ───────────────────
@@ -296,13 +256,6 @@ const STEPS = [
   { num: 2, label: 'Formatting' },
   { num: 3, label: 'Review & Generate' },
 ];
-
-const STATUS_DISPLAY: Record<GenerationStatus, { icon: React.ReactNode; color: string; label: string }> = {
-  pending: { icon: <Clock size={14} className="text-gray-400" />, color: 'bg-gray-100 text-gray-600', label: 'Pending' },
-  running: { icon: <Loader2 size={14} className="text-blue-500 animate-spin" />, color: 'bg-blue-100 text-blue-700', label: 'Running' },
-  completed: { icon: <CheckCircle2 size={14} className="text-green-500" />, color: 'bg-green-100 text-green-700', label: 'Completed' },
-  failed: { icon: <XCircle size={14} className="text-red-500" />, color: 'bg-red-100 text-red-700', label: 'Failed' },
-};
 
 interface GenerationWizardProps {
   sectionId?: string;
@@ -534,6 +487,7 @@ export default function GenerationWizard({ sectionId = 'S.7.3', sectionNumber = 
           if (!current) return;
           await handleRegenerate(lockedPids);
         }}
+        onOpenRun={(r) => setRun(r)}
       />
     );
   }
@@ -694,28 +648,14 @@ export default function GenerationWizard({ sectionId = 'S.7.3', sectionNumber = 
       {/* Previous runs at the bottom */}
       {pastRuns.length > 0 && !generating && (
         <div className="mt-10">
-          <h3 className="text-sm font-semibold text-gray-700 mb-3 uppercase tracking-wider">Previous Runs</h3>
-          <div className="space-y-3">
-            {pastRuns.map((r) => {
-              const s = STATUS_DISPLAY[r.status];
-              return (
-                <div key={r.run_id} className="bg-white rounded-lg border border-gray-200 p-4 flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full ${s.color}`}>
-                      {s.icon} {s.label}
-                    </span>
-                    <span className="font-mono text-sm text-gray-600">{r.run_id.slice(0, 8)}</span>
-                    <span className="text-xs text-gray-400">{new Date(r.created_at).toLocaleString()}</span>
-                  </div>
-                  {r.outputs?.html && r.status === 'completed' && (
-                    <button onClick={() => downloadHtml(r.outputs!.html!, current?.name || 'Document', sectionNumber, sectionTitle)} className="inline-flex items-center gap-1.5 text-xs text-primary-600 hover:text-primary-800 font-medium">
-                      <Download size={12} /> Download HTML
-                    </button>
-                  )}
-                </div>
-              );
-            })}
-          </div>
+          <RunHistory
+            runs={pastRuns}
+            projectName={current.name}
+            sectionNumber={sectionNumber}
+            sectionTitle={sectionTitle}
+            resolveHtml={(r) => (r.outputs?.html ? getGeneratedHtml(r.outputs.html) : null)}
+            onOpen={(r) => setRun(r)}
+          />
         </div>
       )}
     </div>
@@ -734,9 +674,10 @@ interface EditorViewProps {
   newDocsInfo: { count: number; names: string[] } | null;
   onReset: () => void;
   onRegenerate: (lockedPids: string[]) => Promise<void>;
+  onOpenRun: (run: GenerationRun) => void;
 }
 
-function EditorView({ run, sectionId: _sectionId, sectionNumber, sectionTitle, regenerating, traceCount, pastRuns, newDocsInfo, onReset, onRegenerate }: EditorViewProps) {
+function EditorView({ run, sectionId: _sectionId, sectionNumber, sectionTitle, regenerating, traceCount, pastRuns, newDocsInfo, onReset, onRegenerate, onOpenRun }: EditorViewProps) {
   const { current } = useProject();
   const [html, setHtml] = useState<string | null>(null);
   const [showRunList, setShowRunList] = useState(false);
@@ -829,36 +770,16 @@ function EditorView({ run, sectionId: _sectionId, sectionNumber, sectionTitle, r
 
       {/* Past runs (collapsible) */}
       {showRunList && pastRuns.length > 1 && (
-        <div className="px-6 py-3 bg-gray-50 border-b border-gray-200 max-h-40 overflow-y-auto flex-shrink-0">
-          <div className="space-y-1.5">
-            {pastRuns.map((r) => {
-              const s = STATUS_DISPLAY[r.status];
-              const isCurrent = r.run_id === run.run_id;
-              return (
-                <div
-                  key={r.run_id}
-                  className={`flex items-center justify-between gap-3 py-1.5 px-3 rounded-md text-xs ${isCurrent ? 'bg-primary-50 border border-primary-100' : 'bg-white border border-gray-200'}`}
-                >
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] ${s.color}`}>
-                      {s.icon} {s.label}
-                    </span>
-                    <span className="font-mono text-gray-700">{r.run_id.slice(0, 8)}</span>
-                    <span className="text-gray-400 truncate">{new Date(r.created_at).toLocaleString()}</span>
-                    {isCurrent && <span className="text-[10px] font-medium text-primary-600">Current</span>}
-                  </div>
-                  {r.outputs?.html && r.status === 'completed' && !isCurrent && (
-                    <button
-                      onClick={() => downloadHtml(r.outputs!.html!, current?.name || 'Document', sectionNumber, sectionTitle)}
-                      className="inline-flex items-center gap-1 text-gray-500 hover:text-primary-700"
-                    >
-                      <Download size={10} /> HTML
-                    </button>
-                  )}
-                </div>
-              );
-            })}
-          </div>
+        <div className="px-6 py-4 bg-gray-50 border-b border-gray-200 max-h-[60vh] overflow-y-auto flex-shrink-0">
+          <RunHistory
+            runs={pastRuns}
+            currentRunId={run.run_id}
+            projectName={current?.name || 'Document'}
+            sectionNumber={sectionNumber}
+            sectionTitle={sectionTitle}
+            resolveHtml={(r) => (r.outputs?.html ? getGeneratedHtml(r.outputs.html) : null)}
+            onOpen={(r) => { onOpenRun(r); setShowRunList(false); }}
+          />
         </div>
       )}
 
