@@ -371,6 +371,13 @@ export default function GenerationWizard({ sectionId = 'S.7.3', sectionNumber = 
     setRun(null);
   };
 
+  const handleDeleteRun = async (r: GenerationRun) => {
+    await generation.delete(r.run_id);
+    // If the open run was deleted, drop back to the config screen.
+    setRun((cur) => (cur && cur.run_id === r.run_id ? null : cur));
+    await loadPastRuns();
+  };
+
   /**
    * Regenerate using the same project data as the current run, but preserve
    * the user's locked paragraphs. After the new run completes, compute a
@@ -487,6 +494,7 @@ export default function GenerationWizard({ sectionId = 'S.7.3', sectionNumber = 
           await handleRegenerate(lockedPids);
         }}
         onOpenRun={(r) => setRun(r)}
+        onDeleteRun={handleDeleteRun}
       />
     );
   }
@@ -666,6 +674,7 @@ export default function GenerationWizard({ sectionId = 'S.7.3', sectionNumber = 
             sectionTitle={sectionTitle}
             resolveHtml={(r) => (r.outputs?.html ? getGeneratedHtml(r.outputs.html) : null)}
             onOpen={(r) => setRun(r)}
+            onDelete={handleDeleteRun}
           />
         </div>
       )}
@@ -686,9 +695,10 @@ interface EditorViewProps {
   onReset: () => void;
   onRegenerate: (lockedPids: string[]) => Promise<void>;
   onOpenRun: (run: GenerationRun) => void;
+  onDeleteRun: (run: GenerationRun) => void;
 }
 
-function EditorView({ run, sectionId: _sectionId, sectionNumber, sectionTitle, regenerating, traceCount, pastRuns, newDocsInfo, onReset, onRegenerate, onOpenRun }: EditorViewProps) {
+function EditorView({ run, sectionId: _sectionId, sectionNumber, sectionTitle, regenerating, traceCount, pastRuns, newDocsInfo, onReset, onRegenerate, onOpenRun, onDeleteRun }: EditorViewProps) {
   const { current } = useProject();
   const [html, setHtml] = useState<string | null>(null);
   const [showRunList, setShowRunList] = useState(false);
@@ -790,6 +800,7 @@ function EditorView({ run, sectionId: _sectionId, sectionNumber, sectionTitle, r
             sectionTitle={sectionTitle}
             resolveHtml={(r) => (r.outputs?.html ? getGeneratedHtml(r.outputs.html) : null)}
             onOpen={(r) => { onOpenRun(r); setShowRunList(false); }}
+            onDelete={onDeleteRun}
           />
         </div>
       )}

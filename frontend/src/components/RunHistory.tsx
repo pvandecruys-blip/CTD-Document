@@ -14,6 +14,7 @@ import {
   GitCompare,
   ShieldCheck,
   Lock,
+  Trash2,
 } from 'lucide-react';
 import type { GenerationRun, GenerationStatus } from '../types';
 import { downloadAsHtml, printAsPdf, downloadAsDocx } from '../lib/exportFormats';
@@ -36,6 +37,8 @@ interface RunHistoryProps {
   resolveHtml: (run: GenerationRun) => string | null;
   /** Open a run in the editor. */
   onOpen?: (run: GenerationRun) => void;
+  /** Permanently delete a run. */
+  onDelete?: (run: GenerationRun) => void;
 }
 
 export default function RunHistory({
@@ -46,6 +49,7 @@ export default function RunHistory({
   sectionTitle,
   resolveHtml,
   onOpen,
+  onDelete,
 }: RunHistoryProps) {
   const [expandedAudit, setExpandedAudit] = useState<string | null>(null);
   const [exportMenuFor, setExportMenuFor] = useState<string | null>(null);
@@ -204,6 +208,20 @@ export default function RunHistory({
                           </>
                         )}
                       </div>
+                    )}
+                    {onDelete && (
+                      <button
+                        onClick={() => {
+                          const label = r.label || r.run_id.slice(0, 8);
+                          if (confirm(`Delete run ${label}? This permanently removes its document, comments, locks and history.`)) {
+                            onDelete(r);
+                          }
+                        }}
+                        className="inline-flex items-center text-gray-300 hover:text-red-600 px-1.5 py-1 rounded hover:bg-red-50 transition-colors"
+                        title="Delete this run"
+                      >
+                        <Trash2 size={13} />
+                      </button>
                     )}
                   </div>
                 )}

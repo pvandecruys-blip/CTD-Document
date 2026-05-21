@@ -908,6 +908,28 @@ export const generation = {
     const items = allRuns.filter((r) => r.project_id === projectId);
     return { items };
   },
+
+  /**
+   * Permanently delete a run and everything attached to it: the run record,
+   * its stored HTML, and its paragraph state, comments, version history and
+   * activity log.
+   */
+  delete: async (runId: string) => {
+    await delay();
+    const allRuns = getStorage<(GenerationRun & { project_id?: string })[]>(STORAGE_KEYS.GENERATION_RUNS, []);
+    const run = allRuns.find((r) => r.run_id === runId);
+    setStorage(STORAGE_KEYS.GENERATION_RUNS, allRuns.filter((r) => r.run_id !== runId));
+
+    // Remove stored HTML (keyed by the run's output reference and/or runId)
+    const htmlStorage = getStorage<Record<string, string>>(GENERATED_HTML_KEY, {});
+    if (run?.outputs?.html) delete htmlStorage[run.outputs.html];
+    delete htmlStorage[runId];
+    setStorage(GENERATED_HTML_KEY, htmlStorage);
+
+    // Remove paragraph state (locks/comments/versions) and activity log
+    paragraphs.clearRun(runId);
+    activity.clearRun(runId);
+  },
 };
 
 // ── ICH Q Guidelines — Pre-seeded Data ───────────────────────────────
