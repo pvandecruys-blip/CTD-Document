@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
-import { ChevronRight, ChevronLeft, Wand2, Check, Clock, CheckCircle2, Loader2, Link2, FileUp, FolderInput } from 'lucide-react';
+import { Wand2, Clock, CheckCircle2, Loader2, Link2, FileUp, FolderInput, FileText, Info } from 'lucide-react';
 import type { GenerationRun, DocumentFile } from '../types';
 import { useProject } from '../context/ProjectContext';
 import { generation, studies, lots, conditions, attributes, documents, paragraphs, activity, type GenerateRequest } from '../api/client';
@@ -249,14 +249,6 @@ function addClientTraceability(
   return { html: fullHtml, refs };
 }
 
-type Step = 1 | 2 | 3;
-
-const STEPS = [
-  { num: 1, label: 'Scope' },
-  { num: 2, label: 'Formatting' },
-  { num: 3, label: 'Review & Generate' },
-];
-
 interface GenerationWizardProps {
   sectionId?: string;
   sectionNumber?: string;
@@ -265,7 +257,6 @@ interface GenerationWizardProps {
 
 export default function GenerationWizard({ sectionId = 'S.7.3', sectionNumber = '3.2.S.7.3', sectionTitle = 'Stability Data' }: GenerationWizardProps) {
   const { current } = useProject();
-  const [step, setStep] = useState<Step>(1);
   const [run, setRun] = useState<GenerationRun | null>(null);
   const [generating, setGenerating] = useState(false);
   const [pastRuns, setPastRuns] = useState<GenerationRun[]>([]);
@@ -378,7 +369,6 @@ export default function GenerationWizard({ sectionId = 'S.7.3', sectionNumber = 
 
   const handleReset = () => {
     setRun(null);
-    setStep(1);
   };
 
   /**
@@ -534,24 +524,6 @@ export default function GenerationWizard({ sectionId = 'S.7.3', sectionNumber = 
         </div>
       )}
 
-      {/* Sources summary */}
-      {projectDocs.length > 0 && (
-        <div className="mb-4 inline-flex items-center gap-2 text-xs text-gray-500">
-          <FolderInput size={12} className="text-gray-400" />
-          <span>
-            <span className="font-medium text-gray-700">{projectDocs.length}</span> document{projectDocs.length !== 1 ? 's' : ''} tagged for this section
-          </span>
-          {current && (
-            <RouterLink
-              to={`/project/${current.id}/ctd/${sectionId}/documents`}
-              className="text-primary-600 hover:text-primary-800 font-medium"
-            >
-              · Manage sources
-            </RouterLink>
-          )}
-        </div>
-      )}
-
       {/* New documents notification */}
       {newDocsInfo && (
         <div className="mb-6 p-4 rounded-lg bg-amber-50 border border-amber-200 flex items-start gap-3">
@@ -567,92 +539,84 @@ export default function GenerationWizard({ sectionId = 'S.7.3', sectionNumber = 
         </div>
       )}
 
-      {/* Stepper */}
-      <div className="flex items-center mb-8">
-        {STEPS.map((s, i) => (
-          <div key={s.num} className="flex items-center">
-            <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${step >= s.num ? 'bg-primary-600 text-white' : 'bg-gray-200 text-gray-500'}`}>
-              {step > s.num ? <Check size={16} /> : s.num}
+      {projectDocs.length > 0 && (
+        <div className="space-y-5">
+          {/* Sources used */}
+          <div className="bg-white rounded-xl border border-gray-200 p-5">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-sm font-semibold text-gray-700">
+                Sources used
+                <span className="ml-2 text-xs font-normal text-gray-400">({projectDocs.length})</span>
+              </h2>
+              {current && (
+                <RouterLink
+                  to={`/project/${current.id}/ctd/${sectionId}/documents`}
+                  className="inline-flex items-center gap-1 text-xs font-medium text-primary-600 hover:text-primary-800"
+                >
+                  <FolderInput size={12} /> Manage sources
+                </RouterLink>
+              )}
             </div>
-            <span className={`ml-2 text-sm ${step >= s.num ? 'text-gray-900 font-medium' : 'text-gray-400'}`}>{s.label}</span>
-            {i < STEPS.length - 1 && <div className="mx-4 w-12 h-px bg-gray-300" />}
+            <ul className="space-y-1.5">
+              {projectDocs.map((d) => (
+                <li key={d.id} className="flex items-center gap-2 text-sm">
+                  <FileText size={14} className="text-gray-400 flex-shrink-0" />
+                  <span className="text-gray-800 truncate">{d.original_filename}</span>
+                  <span className="text-[10px] text-gray-400 uppercase tracking-wide">{d.classification.replace(/_/g, ' ')}</span>
+                </li>
+              ))}
+            </ul>
           </div>
-        ))}
-      </div>
 
-      <div className="bg-white rounded-lg border border-gray-200 p-6">
-        {step === 1 && (
-          <div className="space-y-4">
-            <h2 className="font-semibold text-gray-900 mb-2">Section Scope</h2>
-            <div className="p-4 rounded-md bg-primary-50 border border-primary-200">
-              <p className="text-sm font-medium text-primary-900">{sectionNumber} — {sectionTitle}</p>
-              <p className="text-xs text-primary-700 mt-1">
-                Generates the complete {sectionTitle.toLowerCase()} document based on your uploaded source documents.
-              </p>
-            </div>
-          </div>
-        )}
-
-        {step === 2 && (
-          <div className="space-y-4">
-            <h2 className="font-semibold text-gray-900 mb-2">Output & Formatting</h2>
-            <div className="p-3 rounded-md bg-gray-50 border text-sm text-gray-700">
-              Output format: <span className="font-medium">PDF</span>
-            </div>
-            <label className="flex items-center gap-2 p-3 rounded-md border hover:bg-gray-50 cursor-pointer">
-              <input type="checkbox" checked={includeTrace} onChange={(e) => setIncludeTrace(e.target.checked)} />
-              <span className="text-sm">Include traceability report</span>
+          {/* Options */}
+          <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
+            <h2 className="text-sm font-semibold text-gray-700">Options</h2>
+            <label className="flex items-center gap-2.5 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={includeTrace}
+                onChange={(e) => setIncludeTrace(e.target.checked)}
+                className="w-4 h-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+              />
+              <span className="text-sm text-gray-700">Include traceability references (per-source markers + appendix)</span>
             </label>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Table Prefix</label>
-              <input value={tablePrefix} onChange={(e) => setTablePrefix(e.target.value)} className="w-48 border rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:outline-none" />
+              <label className="block text-xs font-medium text-gray-500 mb-1">Table prefix</label>
+              <input
+                value={tablePrefix}
+                onChange={(e) => setTablePrefix(e.target.value)}
+                className="w-40 border border-gray-200 rounded-md px-3 py-1.5 text-sm font-mono focus:ring-2 focus:ring-primary-500 focus:outline-none"
+              />
             </div>
           </div>
-        )}
 
-        {step === 3 && (
-          <div className="space-y-4">
-            <h2 className="font-semibold text-gray-900 mb-2">Review Configuration</h2>
-            <dl className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
-              <dt className="text-gray-500">Section</dt>
-              <dd className="text-gray-900">{sectionNumber} {sectionTitle}</dd>
-              <dt className="text-gray-500">Output Format</dt>
-              <dd className="text-gray-900">PDF</dd>
-              <dt className="text-gray-500">Traceability</dt>
-              <dd className="text-gray-900">{includeTrace ? 'Included' : 'Excluded'}</dd>
-              <dt className="text-gray-500">Table Prefix</dt>
-              <dd className="text-gray-900 font-mono">{tablePrefix}</dd>
-            </dl>
-
-            {generating && (
-              <div className="mt-4 p-4 rounded-md bg-blue-50 border border-blue-200 flex items-center gap-3">
-                <Loader2 size={18} className="text-blue-500 animate-spin" />
-                <p className="text-sm text-blue-800 font-medium">Generating with Claude Opus — this may take a moment...</p>
-              </div>
-            )}
+          {/* Output note */}
+          <div className="flex items-start gap-2 px-1 text-xs text-gray-500">
+            <Info size={13} className="text-gray-400 flex-shrink-0 mt-0.5" />
+            <span>
+              Generation produces an editable document. After reviewing you can lock paragraphs,
+              add comments, regenerate, and export to <span className="font-medium text-gray-600">PDF, Word or HTML</span>.
+            </span>
           </div>
-        )}
-      </div>
 
-      <div className="flex justify-between mt-6">
-        <button onClick={() => setStep((s) => Math.max(1, s - 1) as Step)} disabled={step === 1 || generating} className="inline-flex items-center gap-1 text-sm text-gray-600 hover:text-gray-900 disabled:opacity-30">
-          <ChevronLeft size={16} /> Back
-        </button>
-        {step < 3 ? (
-          <button onClick={() => setStep((s) => Math.min(3, s + 1) as Step)} className="inline-flex items-center gap-1 bg-primary-600 text-white px-5 py-2 rounded-md text-sm font-medium hover:bg-primary-700">
-            Next <ChevronRight size={16} />
-          </button>
-        ) : (
-          <button
-            onClick={handleGenerate}
-            disabled={generating || projectDocs.length === 0}
-            title={projectDocs.length === 0 ? 'Tag at least one source document for this section first' : undefined}
-            className="inline-flex items-center gap-2 bg-green-600 text-white px-5 py-2 rounded-md text-sm font-medium hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <Wand2 size={16} /> {generating ? 'Generating...' : `Generate ${sectionNumber}`}
-          </button>
-        )}
-      </div>
+          {/* Generate */}
+          <div className="flex items-center justify-end gap-3">
+            {generating && (
+              <span className="inline-flex items-center gap-2 text-sm text-blue-700">
+                <Loader2 size={16} className="animate-spin" />
+                Generating with Claude Opus…
+              </span>
+            )}
+            <button
+              onClick={handleGenerate}
+              disabled={generating}
+              className="inline-flex items-center gap-2 bg-green-600 text-white px-6 py-2.5 rounded-lg text-sm font-medium hover:bg-green-700 shadow-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Wand2 size={16} /> {generating ? 'Generating…' : `Generate ${sectionNumber}`}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Previous runs at the bottom */}
       {pastRuns.length > 0 && !generating && (
