@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
-import { Wand2, Clock, CheckCircle2, Loader2, Link2, FileUp, FolderInput, FileText, Info } from 'lucide-react';
+import { Wand2, Clock, CheckCircle2, Loader2, Link2, FileUp, FolderInput, FileText, Info, SlidersHorizontal, Sparkles } from 'lucide-react';
 import type { GenerationRun, DocumentFile } from '../types';
 import { useProject } from '../context/ProjectContext';
 import { generation, studies, lots, conditions, attributes, documents, paragraphs, activity, type GenerateRequest } from '../api/client';
@@ -542,51 +542,84 @@ export default function GenerationWizard({ sectionId = 'S.7.3', sectionNumber = 
       {projectDocs.length > 0 && (
         <div className="space-y-5">
           {/* Sources used */}
-          <div className="bg-white rounded-xl border border-gray-200 p-5">
+          <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
             <div className="flex items-center justify-between mb-3">
-              <h2 className="text-sm font-semibold text-gray-700">
+              <h2 className="flex items-center gap-2 text-sm font-semibold text-gray-700">
+                <FolderInput size={15} className="text-gray-400" />
                 Sources used
-                <span className="ml-2 text-xs font-normal text-gray-400">({projectDocs.length})</span>
+                <span className="text-xs font-normal text-gray-400">({projectDocs.length})</span>
               </h2>
               {current && (
                 <RouterLink
                   to={`/project/${current.id}/ctd/${sectionId}/documents`}
                   className="inline-flex items-center gap-1 text-xs font-medium text-primary-600 hover:text-primary-800"
                 >
-                  <FolderInput size={12} /> Manage sources
+                  Manage sources
                 </RouterLink>
               )}
             </div>
-            <ul className="space-y-1.5">
+            <ul className="space-y-1">
               {projectDocs.map((d) => (
-                <li key={d.id} className="flex items-center gap-2 text-sm">
-                  <FileText size={14} className="text-gray-400 flex-shrink-0" />
-                  <span className="text-gray-800 truncate">{d.original_filename}</span>
-                  <span className="text-[10px] text-gray-400 uppercase tracking-wide">{d.classification.replace(/_/g, ' ')}</span>
+                <li key={d.id} className="flex items-center gap-2.5 text-sm py-1.5 px-2 rounded-md hover:bg-gray-50">
+                  <span className="w-7 h-7 rounded-md bg-blue-50 flex items-center justify-center flex-shrink-0">
+                    <FileText size={13} className="text-blue-500" />
+                  </span>
+                  <span className="text-gray-800 truncate flex-1">{d.original_filename}</span>
+                  <span className="text-[10px] text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full uppercase tracking-wide flex-shrink-0">
+                    {d.classification.replace(/_/g, ' ')}
+                  </span>
                 </li>
               ))}
             </ul>
           </div>
 
           {/* Options */}
-          <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
-            <h2 className="text-sm font-semibold text-gray-700">Options</h2>
-            <label className="flex items-center gap-2.5 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={includeTrace}
-                onChange={(e) => setIncludeTrace(e.target.checked)}
-                className="w-4 h-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
-              />
-              <span className="text-sm text-gray-700">Include traceability references (per-source markers + appendix)</span>
-            </label>
-            <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">Table prefix</label>
+          <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
+            <h2 className="flex items-center gap-2 text-sm font-semibold text-gray-700 mb-4">
+              <SlidersHorizontal size={15} className="text-gray-400" />
+              Options
+            </h2>
+
+            {/* Traceability — selectable toggle row */}
+            <button
+              type="button"
+              onClick={() => setIncludeTrace(!includeTrace)}
+              className={`w-full flex items-center gap-3 p-3 rounded-lg border text-left transition-all ${
+                includeTrace
+                  ? 'border-primary-300 bg-primary-50/60 ring-1 ring-primary-100'
+                  : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
+              }`}
+            >
+              <span className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors ${
+                includeTrace ? 'bg-primary-100 text-primary-600' : 'bg-gray-100 text-gray-400'
+              }`}>
+                <Link2 size={16} />
+              </span>
+              <span className="flex-1 min-w-0">
+                <span className="block text-sm font-medium text-gray-800">Traceability references</span>
+                <span className="block text-xs text-gray-500">Per-source markers in tables + a source appendix</span>
+              </span>
+              <span className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors flex-shrink-0 ${
+                includeTrace ? 'bg-primary-600' : 'bg-gray-300'
+              }`}>
+                <span
+                  className="inline-block h-4 w-4 rounded-full bg-white shadow transition-transform"
+                  style={{ transform: includeTrace ? 'translateX(18px)' : 'translateX(2px)' }}
+                />
+              </span>
+            </button>
+
+            {/* Table prefix */}
+            <div className="mt-4">
+              <label className="block text-xs font-medium text-gray-500 mb-1.5">Table prefix</label>
               <input
                 value={tablePrefix}
                 onChange={(e) => setTablePrefix(e.target.value)}
-                className="w-40 border border-gray-200 rounded-md px-3 py-1.5 text-sm font-mono focus:ring-2 focus:ring-primary-500 focus:outline-none"
+                className="w-40 border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-primary-500 focus:border-primary-400 focus:outline-none transition-shadow"
               />
+              <p className="text-[11px] text-gray-400 mt-1.5">
+                Prepended to every table number — e.g. <span className="font-mono text-gray-500">{tablePrefix || 'S.2.5-'}1</span>
+              </p>
             </div>
           </div>
 
@@ -600,7 +633,7 @@ export default function GenerationWizard({ sectionId = 'S.7.3', sectionNumber = 
           </div>
 
           {/* Generate */}
-          <div className="flex items-center justify-end gap-3">
+          <div className="flex items-center justify-end gap-4 pt-1">
             {generating && (
               <span className="inline-flex items-center gap-2 text-sm text-blue-700">
                 <Loader2 size={16} className="animate-spin" />
@@ -610,9 +643,14 @@ export default function GenerationWizard({ sectionId = 'S.7.3', sectionNumber = 
             <button
               onClick={handleGenerate}
               disabled={generating}
-              className="inline-flex items-center gap-2 bg-green-600 text-white px-6 py-2.5 rounded-lg text-sm font-medium hover:bg-green-700 shadow-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              className="group inline-flex items-center gap-2.5 bg-gradient-to-r from-green-600 to-emerald-600 text-white px-7 py-3 rounded-xl text-sm font-semibold shadow-lg shadow-green-600/25 hover:shadow-green-600/40 hover:from-green-700 hover:to-emerald-700 hover:scale-[1.02] active:scale-100 transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 disabled:shadow-none"
             >
-              <Wand2 size={16} /> {generating ? 'Generating…' : `Generate ${sectionNumber}`}
+              {generating ? (
+                <Loader2 size={17} className="animate-spin" />
+              ) : (
+                <Sparkles size={17} className="group-hover:rotate-12 transition-transform" />
+              )}
+              {generating ? 'Generating…' : `Generate ${sectionNumber}`}
             </button>
           </div>
         </div>
