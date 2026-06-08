@@ -287,17 +287,25 @@ export default function GenerationWizard({ sectionId = 'S.7.3', sectionNumber = 
 
   useEffect(() => { loadPastRuns(); loadDocs(); }, [current?.id]);
 
+  // Runs belonging to the section currently being generated. Runs are stored
+  // per project (across all sections), so we must scope to this section before
+  // showing them — otherwise section .5 would list section .7's runs.
+  const sectionRuns = useMemo(
+    () => pastRuns.filter((r) => r.section_id === sectionId),
+    [pastRuns, sectionId],
+  );
+
   // Check if documents were added/updated after the last generation
   const newDocsInfo = useMemo(() => {
-    const sectionRuns = pastRuns.filter((r) => r.section_id === sectionId && r.status === 'completed');
-    if (sectionRuns.length === 0 || projectDocs.length === 0) return null;
+    const completedSectionRuns = sectionRuns.filter((r) => r.status === 'completed');
+    if (completedSectionRuns.length === 0 || projectDocs.length === 0) return null;
 
-    const lastRunTime = Math.max(...sectionRuns.map((r) => new Date(r.completed_at || r.created_at).getTime()));
+    const lastRunTime = Math.max(...completedSectionRuns.map((r) => new Date(r.completed_at || r.created_at).getTime()));
     const newerDocs = projectDocs.filter((d) => new Date(d.uploaded_at).getTime() > lastRunTime);
 
     if (newerDocs.length === 0) return null;
     return { count: newerDocs.length, names: newerDocs.map((d) => d.original_filename) };
-  }, [pastRuns, projectDocs, sectionId]);
+  }, [sectionRuns, projectDocs]);
 
   const handleGenerate = async () => {
     if (!current) return;
@@ -486,7 +494,7 @@ export default function GenerationWizard({ sectionId = 'S.7.3', sectionNumber = 
         sectionTitle={sectionTitle}
         regenerating={generating}
         traceCount={traceCount}
-        pastRuns={pastRuns}
+        pastRuns={sectionRuns}
         newDocsInfo={newDocsInfo}
         onReset={handleReset}
         onRegenerate={async (lockedPids) => {
@@ -664,11 +672,11 @@ export default function GenerationWizard({ sectionId = 'S.7.3', sectionNumber = 
         </div>
       )}
 
-      {/* Previous runs at the bottom */}
-      {pastRuns.length > 0 && !generating && (
+      {/* Previous runs at the bottom — scoped to the current section */}
+      {sectionRuns.length > 0 && !generating && (
         <div className="mt-10">
           <RunHistory
-            runs={pastRuns}
+            runs={sectionRuns}
             projectName={current.name}
             sectionNumber={sectionNumber}
             sectionTitle={sectionTitle}

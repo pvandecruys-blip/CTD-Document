@@ -19,7 +19,7 @@ import {
   Activity,
   MessageSquarePlus,
 } from 'lucide-react';
-import type { ParagraphComment, ParagraphState, CommentStatus, ActivityEntry } from '../types';
+import type { ParagraphComment, ParagraphState, CommentStatus, ActivityEntry, ParagraphVersion } from '../types';
 import { paragraphs, activity } from '../api/client';
 
 // ─── Helpers ─────────────────────────────────────────────────────────
@@ -332,6 +332,40 @@ export default function ParagraphEditor({ runId, html, onRegenerate, onDownloadH
     [states],
   );
 
+  // One "previous version" per changed subsection — the most recent snapshot
+  // captured before the current text (versions are stored oldest-first, so the
+  // last entry is the immediately preceding version). We deliberately surface
+  // only this single previous version here, not the full history.
+  const previousVersions = useMemo(() => {
+    const doc = new DOMParser().parseFromString(body, 'text/html');
+    const entries: { pid: string; label: string; version: ParagraphVersion }[] = [];
+    for (const [pid, st] of Object.entries(states)) {
+      const versions = st.versions;
+      if (!versions || versions.length === 0) continue;
+      const previous = versions[versions.length - 1];
+
+      // Label the subsection by its nearest preceding heading, falling back to
+      // a snippet of the current text.
+      const el = doc.querySelector(`[data-pid="${pid}"]`);
+      let label = pid;
+      if (el) {
+        let heading = '';
+        let node: Element | null = el;
+        while (node && !heading) {
+          let sib = node.previousElementSibling;
+          while (sib) {
+            if (/^H[1-6]$/.test(sib.tagName)) { heading = sib.textContent?.trim() || ''; break; }
+            sib = sib.previousElementSibling;
+          }
+          node = node.parentElement;
+        }
+        label = heading || (el.textContent?.trim().slice(0, 60) || pid);
+      }
+      entries.push({ pid, label, version: previous });
+    }
+    return entries;
+  }, [states, body]);
+
   const selectedComments = selectedPid ? comments.filter((c) => c.pid === selectedPid) : [];
   const selectedState = selectedPid ? states[selectedPid] || {} : ({} as ParagraphState);
 
@@ -490,6 +524,42 @@ export default function ParagraphEditor({ runId, html, onRegenerate, onDownloadH
             style={{ fontFamily: "'Times New Roman', Times, serif", lineHeight: 1.6 }}
             dangerouslySetInnerHTML={{ __html: body }}
           />
+
+          {/* Previous version — one entry per changed subsection (not the full history) */}
+          {previousVersions.length > 0 && (
+            <div className="max-w-[210mm] mx-auto mt-6">
+              <details className="bg-white rounded-lg border border-gray-200 shadow-sm">
+                <summary className="cursor-pointer select-none px-5 py-3 flex items-center gap-2 text-sm font-medium text-gray-700">
+                  <History size={14} className="text-gray-400" />
+                  Previous version
+                  <span className="text-[11px] font-normal text-gray-400">
+                    {previousVersions.length} changed subsection{previousVersions.length !== 1 ? 's' : ''}
+                  </span>
+                </summary>
+                <div className="border-t border-gray-100 divide-y divide-gray-100">
+                  {previousVersions.map(({ pid, label, version }) => (
+                    <button
+                      key={pid}
+                      onClick={() => { setSelectedPid(pid); setShowActivity(false); }}
+                      className="text-left w-full px-5 py-3 hover:bg-gray-50 transition-colors"
+                      title="Open this subsection"
+                    >
+                      <div className="flex items-center justify-between gap-2 mb-1.5">
+                        <span className="text-xs font-medium text-gray-800 truncate">{label}</span>
+                        <span className="text-[10px] text-gray-400 flex-shrink-0">
+                          {new Date(version.created_at).toLocaleString()}
+                        </span>
+                      </div>
+                      <div
+                        className="text-[13px] text-gray-500 max-h-32 overflow-y-auto font-serif border-l-2 border-gray-200 pl-3"
+                        dangerouslySetInnerHTML={{ __html: version.html }}
+                      />
+                    </button>
+                  ))}
+                </div>
+              </details>
+            </div>
+          )}
 
           {/* Floating hover controls */}
           {hoverPid && hoverPos && !editingPid && (
