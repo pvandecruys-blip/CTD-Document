@@ -6,8 +6,19 @@ import {
   Info,
   Search,
   Filter,
+  ExternalLink,
 } from 'lucide-react';
 import { getICHGuidelines, type ICHGuideline, type ICHRule } from '../api/client';
+import { useProject } from '../context/ProjectContext';
+import { MODALITY_OPTIONS, resolveModality } from '../config/modalities';
+import type { Modality } from '../types';
+
+const DOMAIN_LABELS: Record<string, string> = {
+  process_validation: 'Process & Manufacturing Validation (3.2.S.2.5 & 3.2.P.3.5)',
+  stability: 'Stability Testing (3.2.S.7 & 3.2.P.8)',
+  general: 'Specifications, Impurities & Methods',
+};
+const DOMAIN_ORDER = ['process_validation', 'stability', 'general'];
 
 const SEVERITY_COLORS = {
   BLOCK: 'bg-red-100 text-red-700 border-red-200',
@@ -95,11 +106,17 @@ function GuidelineCard({ guideline }: { guideline: ICHGuideline }) {
         </div>
 
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <h3 className="text-sm font-bold text-gray-900">{guideline.code}</h3>
-            <span className="text-[10px] px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-medium">Active</span>
+            <span className="text-[10px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 font-medium">{guideline.agency}</span>
+            {guideline.ds_ctd_tags && guideline.ds_ctd_tags.length > 0 && (
+              <span className="text-[9px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-600 font-medium">DS {guideline.ds_ctd_tags.map((t) => `3.2.${t}`).join(', ')}</span>
+            )}
+            {guideline.dp_ctd_tags && guideline.dp_ctd_tags.length > 0 && (
+              <span className="text-[9px] px-1.5 py-0.5 rounded bg-purple-50 text-purple-600 font-medium">DP {guideline.dp_ctd_tags.map((t) => `3.2.${t}`).join(', ')}</span>
+            )}
           </div>
-          <p className="text-xs text-gray-500 mt-0.5 truncate">{guideline.title}</p>
+          <p className="text-xs text-gray-500 mt-0.5 truncate">{guideline.why_it_matters || guideline.title}</p>
         </div>
 
         <div className="flex items-center gap-3 flex-shrink-0">
@@ -129,6 +146,18 @@ function GuidelineCard({ guideline }: { guideline: ICHGuideline }) {
             <div className="flex items-center gap-4 mt-2 text-[10px] text-gray-500">
               <span>Agency: <strong>{guideline.agency}</strong></span>
               <span>Version: <strong>{guideline.version}</strong></span>
+              {guideline.reference_url && (
+                <a
+                  href={guideline.reference_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                  className="inline-flex items-center gap-1 text-primary-600 hover:text-primary-800 font-medium"
+                >
+                  <ExternalLink size={11} />
+                  Full text
+                </a>
+              )}
             </div>
           </div>
           <div className="p-4 space-y-2">
@@ -143,16 +172,24 @@ function GuidelineCard({ guideline }: { guideline: ICHGuideline }) {
 }
 
 export default function RegulatoryLibrary() {
-  const guidelines = getICHGuidelines();
+  const { current } = useProject();
+  const allGuidelines = getICHGuidelines();
   const [search, setSearch] = useState('');
   const [filterSeverity, setFilterSeverity] = useState<'all' | 'BLOCK' | 'WARN'>('all');
+  // Default the modality filter to the current project's modality.
+  const [filterModality, setFilterModality] = useState<'all' | Modality>(current?.modality ?? 'all');
+
+  // Apply the modality filter at guideline level (a guideline with no modalities applies to all).
+  const guidelines = filterModality === 'all'
+    ? allGuidelines
+    : allGuidelines.filter((g) => !g.modalities || g.modalities.includes(filterModality));
 
   const totalRules = guidelines.reduce((n, g) => n + g.rules.length, 0);
   const blockRules = guidelines.reduce((n, g) => n + g.rules.filter((r) => r.severity === 'BLOCK').length, 0);
   const warnRules = guidelines.reduce((n, g) => n + g.rules.filter((r) => r.severity === 'WARN').length, 0);
   const mustRules = guidelines.reduce((n, g) => n + g.rules.filter((r) => r.requirement_level === 'MUST').length, 0);
 
-  // Filter guidelines based on search
+  // Filter guidelines based on search + severity
   const filteredGuidelines = guidelines.map((g) => ({
     ...g,
     rules: g.rules.filter((r) => {
@@ -162,12 +199,17 @@ export default function RegulatoryLibrary() {
     }),
   })).filter((g) => g.rules.length > 0 || !search);
 
+  // Group the filtered guidelines by regulatory domain for display.
+  const byDomain = DOMAIN_ORDER
+    .map((domain) => ({ domain, guidelines: filteredGuidelines.filter((g) => (g.domain || 'general') === domain) }))
+    .filter((d) => d.guidelines.length > 0);
+
   return (
     <div className="p-6 max-w-6xl mx-auto">
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-gray-900">Regulatory Library</h1>
         <p className="text-sm text-gray-500 mt-1">
-          ICH Quality Guidelines — rules used for gap assessment
+          ICH, EMA, FDA &amp; WHO guidelines mapped to CTD sections — used by the compliance check
         </p>
       </div>
 
@@ -235,11 +277,51 @@ export default function RegulatoryLibrary() {
         </div>
       </div>
 
-      {/* Guidelines */}
-      <div className="space-y-4">
-        {filteredGuidelines.map((g) => (
-          <GuidelineCard key={g.id} guideline={g} />
+      {/* Modality filter */}
+      <div className="flex items-center gap-2 mb-6 flex-wrap">
+        <span className="text-xs font-medium text-gray-500 mr-1">Modality:</span>
+        <button
+          onClick={() => setFilterModality('all')}
+          className={`text-xs px-3 py-1.5 rounded-lg font-medium transition-colors border ${
+            filterModality === 'all' ? 'bg-gray-800 text-white border-gray-800' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
+          }`}
+        >
+          All modalities
+        </button>
+        {MODALITY_OPTIONS.map((m) => (
+          <button
+            key={m.id}
+            onClick={() => setFilterModality(m.id)}
+            title={m.description}
+            className={`text-xs px-3 py-1.5 rounded-lg font-medium transition-colors border ${
+              filterModality === m.id ? 'bg-gray-800 text-white border-gray-800' : `${m.badgeClass} hover:brightness-95`
+            }`}
+          >
+            {m.label}
+          </button>
         ))}
+        {filterModality !== 'all' && (
+          <span className="text-[11px] text-gray-400">{resolveModality(filterModality).name} — {guidelines.length} applicable guideline{guidelines.length !== 1 ? 's' : ''}</span>
+        )}
+      </div>
+
+      {/* Guidelines grouped by domain */}
+      <div className="space-y-6">
+        {byDomain.map(({ domain, guidelines: domainGuidelines }) => (
+          <div key={domain}>
+            <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 px-1">{DOMAIN_LABELS[domain] || domain}</h2>
+            <div className="space-y-3">
+              {domainGuidelines.map((g) => (
+                <GuidelineCard key={g.id} guideline={g} />
+              ))}
+            </div>
+          </div>
+        ))}
+        {byDomain.length === 0 && (
+          <div className="text-center py-10 bg-white rounded-xl border border-gray-200 text-sm text-gray-500">
+            No guidelines match the current filters.
+          </div>
+        )}
       </div>
     </div>
   );

@@ -18,6 +18,7 @@ import type { VeevaNotification } from './types';
 import Home from './pages/Home';
 import ProjectDashboard from './pages/ProjectDashboard';
 import DocumentLibrary from './pages/DocumentLibrary';
+import ComplianceDashboard from './pages/ComplianceDashboard';
 import SectionSources from './pages/SectionSources';
 import GenerationWizard from './pages/GenerationWizard';
 import ValidationReport from './pages/ValidationReport';
@@ -248,6 +249,7 @@ export default function App() {
         <Route path="/" element={<Home />} />
         <Route path="/project/:projectId" element={<ProjectDashboard />} />
         <Route path="/project/:projectId/library" element={<DocumentLibrary />} />
+        <Route path="/project/:projectId/compliance" element={<ComplianceDashboard />} />
         <Route path="/project/:projectId/ctd/:sectionId/*" element={<CTDSectionRouter />} />
 
         {/* Legacy routes */}

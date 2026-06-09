@@ -5,6 +5,7 @@
 
 import type {
   Project,
+  Modality,
   DocumentFile,
   DocumentClassification,
   Study,
@@ -87,7 +88,7 @@ export const projects = {
     return project;
   },
 
-  create: async (data: { name: string; description?: string }) => {
+  create: async (data: { name: string; description?: string; modality?: Modality }) => {
     await delay();
     const items = getStorage<Project[]>(STORAGE_KEYS.PROJECTS, []);
     const newProject: Project = {
@@ -97,6 +98,7 @@ export const projects = {
       status: 'draft',
       clinical_phase: 'phase_1',
       numbering_mode: 'ctd',
+      modality: data.modality ?? 'NCE',
       created_by: { id: 'user-1', display_name: 'Local User', role: 'author' },
       document_count: 0,
       created_at: new Date().toISOString(),
@@ -945,7 +947,12 @@ export interface ICHRule {
   ctd_sections: string[];
   evidence_expected: string;
   category: string;
+  /** Modalities this rule applies to. Omitted → inherits the guideline's modalities. */
+  modalities?: Modality[];
 }
+
+/** The two regulatory domains from the mapping email's tables. */
+export type RegulatoryDomain = 'process_validation' | 'stability' | 'general';
 
 export interface ICHGuideline {
   id: string;
@@ -955,7 +962,23 @@ export interface ICHGuideline {
   version: string;
   description: string;
   rules: ICHRule[];
+  /** Which of the email's mapping tables this guideline belongs to. */
+  domain?: RegulatoryDomain;
+  /** Drug Substance CTD section tags this guideline maps to (e.g. ['S.2.5']). */
+  ds_ctd_tags?: string[];
+  /** Drug Product CTD section tags this guideline maps to (e.g. ['P.3.5']). */
+  dp_ctd_tags?: string[];
+  /** "Primary focus / why it matters" column from the email. */
+  why_it_matters?: string;
+  /** Link to the full-text guideline PDF / page. */
+  reference_url?: string;
+  /** Modalities this guideline applies to. Omitted → applies to all modalities. */
+  modalities?: Modality[];
 }
+
+// Modality groupings reused across guideline definitions.
+const ALL_MODALITIES: Modality[] = ['NCE', 'NBE', 'ATMP', 'SYNTHETIC_HYBRID', 'VACCINE'];
+const BIO_MODALITIES: Modality[] = ['NBE', 'ATMP', 'VACCINE'];
 
 const ICH_GUIDELINES: ICHGuideline[] = [
   {
@@ -965,6 +988,12 @@ const ICH_GUIDELINES: ICHGuideline[] = [
     agency: 'ICH',
     version: 'R2 (2003)',
     description: 'Establishes requirements for stability testing protocols, storage conditions, testing frequency, and data evaluation for drug substances and products.',
+    domain: 'stability',
+    ds_ctd_tags: ['S.7.1', 'S.7.3'],
+    dp_ctd_tags: ['P.8.1', 'P.8.3'],
+    why_it_matters: 'Core stability protocol design, storage conditions and shelf-life.',
+    reference_url: 'https://database.ich.org/sites/default/files/Q1A%28R2%29%20Guideline.pdf',
+    modalities: ALL_MODALITIES,
     rules: [
       { id: 'q1a-001', guideline_id: 'ich-q1a', rule_id_code: 'Q1A-001', rule_text: 'Long-term testing shall be conducted at 25°C ± 2°C / 60% RH ± 5% RH for a minimum of 12 months at time of submission.', requirement_level: 'MUST', severity: 'BLOCK', applies_to: ['DS', 'DP'], ctd_sections: ['S.7.3', 'P.8.3'], evidence_expected: 'Stability data at 25°C/60%RH with ≥12 months', category: 'Storage Conditions' },
       { id: 'q1a-002', guideline_id: 'ich-q1a', rule_id_code: 'Q1A-002', rule_text: 'Accelerated testing shall be conducted at 40°C ± 2°C / 75% RH ± 5% RH for a minimum of 6 months.', requirement_level: 'MUST', severity: 'BLOCK', applies_to: ['DS', 'DP'], ctd_sections: ['S.7.3', 'P.8.3'], evidence_expected: 'Stability data at 40°C/75%RH with ≥6 months', category: 'Storage Conditions' },
@@ -985,6 +1014,12 @@ const ICH_GUIDELINES: ICHGuideline[] = [
     agency: 'ICH',
     version: '1996',
     description: 'Provides guidance on photostability testing as part of stress testing for drug substances and products.',
+    domain: 'stability',
+    ds_ctd_tags: ['S.7.3'],
+    dp_ctd_tags: ['P.8.3'],
+    why_it_matters: 'Procedures for light exposure and photostability assessment.',
+    reference_url: 'https://database.ich.org/sites/default/files/Q1B_Guideline.pdf',
+    modalities: ALL_MODALITIES,
     rules: [
       { id: 'q1b-001', guideline_id: 'ich-q1b', rule_id_code: 'Q1B-001', rule_text: 'Photostability testing should be conducted on at least one primary batch of the drug substance.', requirement_level: 'SHOULD', severity: 'WARN', applies_to: ['DS'], ctd_sections: ['S.7.3'], evidence_expected: 'Photostability data for ≥1 DS batch', category: 'Photostability' },
       { id: 'q1b-002', guideline_id: 'ich-q1b', rule_id_code: 'Q1B-002', rule_text: 'Samples should be exposed to light providing an overall illumination of ≥1.2 million lux hours and an integrated near UV energy of ≥200 Wh/m².', requirement_level: 'MUST', severity: 'BLOCK', applies_to: ['DS', 'DP'], ctd_sections: ['S.7.3', 'P.8.3'], evidence_expected: 'Light exposure conditions documented', category: 'Photostability' },
@@ -998,6 +1033,12 @@ const ICH_GUIDELINES: ICHGuideline[] = [
     agency: 'ICH',
     version: 'R2 (2006)',
     description: 'Provides guidance on classification, identification, qualification and reporting thresholds for impurities in drug substances.',
+    domain: 'general',
+    ds_ctd_tags: ['S.3.2', 'S.4.1', 'S.4.5'],
+    dp_ctd_tags: [],
+    why_it_matters: 'Reporting, identification and qualification of impurities in the drug substance.',
+    reference_url: 'https://database.ich.org/sites/default/files/Q3A%28R2%29%20Guideline.pdf',
+    modalities: ALL_MODALITIES,
     rules: [
       { id: 'q3a-001', guideline_id: 'ich-q3a', rule_id_code: 'Q3A-001', rule_text: 'Organic impurities above the reporting threshold shall be reported.', requirement_level: 'MUST', severity: 'BLOCK', applies_to: ['DS'], ctd_sections: ['S.3.2', 'S.4.1'], evidence_expected: 'Impurity profile with levels above reporting threshold', category: 'Impurity Reporting' },
       { id: 'q3a-002', guideline_id: 'ich-q3a', rule_id_code: 'Q3A-002', rule_text: 'Identified impurities above the identification threshold shall be identified by name and structure.', requirement_level: 'MUST', severity: 'BLOCK', applies_to: ['DS'], ctd_sections: ['S.3.2'], evidence_expected: 'Named/identified impurities above threshold', category: 'Impurity Identification' },
@@ -1013,6 +1054,12 @@ const ICH_GUIDELINES: ICHGuideline[] = [
     agency: 'ICH',
     version: 'R2 (2006)',
     description: 'Guidance on reporting, identification, and qualification of degradation products in drug products.',
+    domain: 'general',
+    ds_ctd_tags: [],
+    dp_ctd_tags: ['P.5.5', 'P.8.3'],
+    why_it_matters: 'Reporting and identification of degradation products in the drug product.',
+    reference_url: 'https://database.ich.org/sites/default/files/Q3B%28R2%29%20Guideline.pdf',
+    modalities: ALL_MODALITIES,
     rules: [
       { id: 'q3b-001', guideline_id: 'ich-q3b', rule_id_code: 'Q3B-001', rule_text: 'Degradation products above the reporting threshold in the drug product shall be reported.', requirement_level: 'MUST', severity: 'BLOCK', applies_to: ['DP'], ctd_sections: ['P.5.5', 'P.5.1'], evidence_expected: 'Degradation product profile above reporting threshold', category: 'Degradation Products' },
       { id: 'q3b-002', guideline_id: 'ich-q3b', rule_id_code: 'Q3B-002', rule_text: 'Degradation products above the identification threshold shall be identified.', requirement_level: 'MUST', severity: 'BLOCK', applies_to: ['DP'], ctd_sections: ['P.5.5'], evidence_expected: 'Identified degradation products', category: 'Degradation Products' },
@@ -1026,6 +1073,12 @@ const ICH_GUIDELINES: ICHGuideline[] = [
     agency: 'ICH',
     version: '1999',
     description: 'Guidance on setting specifications for new drug substances and drug products (chemical entities).',
+    domain: 'general',
+    ds_ctd_tags: ['S.4.1', 'S.4.5'],
+    dp_ctd_tags: ['P.5.1', 'P.5.6'],
+    why_it_matters: 'Test procedures and acceptance criteria for release and stability specifications.',
+    reference_url: 'https://database.ich.org/sites/default/files/Q6A%20Guideline.pdf',
+    modalities: ALL_MODALITIES,
     rules: [
       { id: 'q6a-001', guideline_id: 'ich-q6a', rule_id_code: 'Q6A-001', rule_text: 'Specifications shall include tests for description, identification, assay, and impurities.', requirement_level: 'MUST', severity: 'BLOCK', applies_to: ['DS', 'DP'], ctd_sections: ['S.4.1', 'P.5.1'], evidence_expected: 'Specification table with required tests', category: 'Specifications' },
       { id: 'q6a-002', guideline_id: 'ich-q6a', rule_id_code: 'Q6A-002', rule_text: 'Drug product specifications should include tests for dissolution or disintegration where applicable.', requirement_level: 'SHOULD', severity: 'WARN', applies_to: ['DP'], ctd_sections: ['P.5.1'], evidence_expected: 'Dissolution/disintegration test in DP spec', category: 'Specifications' },
@@ -1040,13 +1093,426 @@ const ICH_GUIDELINES: ICHGuideline[] = [
     agency: 'ICH',
     version: 'R2 (2022)',
     description: 'Provides guidance on the validation characteristics to consider during validation of analytical procedures.',
+    domain: 'general',
+    ds_ctd_tags: ['S.4.2', 'S.4.3'],
+    dp_ctd_tags: ['P.5.2', 'P.5.3'],
+    why_it_matters: 'Validation of analytical procedures used for release and stability testing.',
+    reference_url: 'https://database.ich.org/sites/default/files/ICH_Q2-R2_Document_Step4_Guideline_2023_1130.pdf',
+    modalities: ALL_MODALITIES,
     rules: [
       { id: 'q2-001', guideline_id: 'ich-q2', rule_id_code: 'Q2-001', rule_text: 'Analytical procedures used for testing shall be validated for specificity, accuracy, precision, linearity, range, and robustness.', requirement_level: 'MUST', severity: 'BLOCK', applies_to: ['DS', 'DP'], ctd_sections: ['S.4.3', 'P.5.3'], evidence_expected: 'Analytical validation report', category: 'Analytical Validation' },
       { id: 'q2-002', guideline_id: 'ich-q2', rule_id_code: 'Q2-002', rule_text: 'Detection limit and quantitation limit should be established for impurity testing methods.', requirement_level: 'SHOULD', severity: 'WARN', applies_to: ['DS', 'DP'], ctd_sections: ['S.4.3', 'P.5.3'], evidence_expected: 'LOD/LOQ values for impurity methods', category: 'Analytical Validation' },
       { id: 'q2-003', guideline_id: 'ich-q2', rule_id_code: 'Q2-003', rule_text: 'System suitability criteria shall be established for each analytical procedure.', requirement_level: 'MUST', severity: 'BLOCK', applies_to: ['DS', 'DP'], ctd_sections: ['S.4.2', 'P.5.2'], evidence_expected: 'System suitability criteria defined', category: 'Analytical Validation' },
     ],
   },
+
+  // ── Process & Manufacturing Validation (3.2.S.2.5 & 3.2.P.3.5) ──────
+  {
+    id: 'ich-q7', code: 'ICH Q7', title: 'Good Manufacturing Practice for Active Pharmaceutical Ingredients', agency: 'ICH', version: '2000',
+    description: 'GMP requirements for APIs covering process controls, validation and change control.',
+    domain: 'process_validation', ds_ctd_tags: ['S.2.2', 'S.2.5', 'S.4'], dp_ctd_tags: [],
+    why_it_matters: 'API GMP, validation, change control and process controls.',
+    reference_url: 'https://database.ich.org/sites/default/files/Q7_Guideline.pdf', modalities: ALL_MODALITIES,
+    rules: [
+      { id: 'q7-001', guideline_id: 'ich-q7', rule_id_code: 'Q7-001', rule_text: 'Critical process steps and critical process parameters shall be defined and controlled during API manufacture.', requirement_level: 'MUST', severity: 'BLOCK', applies_to: ['DS'], ctd_sections: ['S.2.2', 'S.2.5'], evidence_expected: 'Description of critical steps and in-process controls', category: 'Process Controls' },
+      { id: 'q7-002', guideline_id: 'ich-q7', rule_id_code: 'Q7-002', rule_text: 'Process validation should confirm the manufacturing process performs as intended and reproducibly.', requirement_level: 'SHOULD', severity: 'WARN', applies_to: ['DS'], ctd_sections: ['S.2.5'], evidence_expected: 'Process validation summary for the API', category: 'Process Validation' },
+    ],
+  },
+  {
+    id: 'ich-q11', code: 'ICH Q11', title: 'Development and Manufacture of Drug Substances', agency: 'ICH', version: '2012',
+    description: 'Approaches to developing and understanding the manufacturing process and control strategy for drug substances.',
+    domain: 'process_validation', ds_ctd_tags: ['S.2.2', 'S.2.5', 'S.4'], dp_ctd_tags: [],
+    why_it_matters: 'DS manufacturing process development, control strategy and validation.',
+    reference_url: 'https://database.ich.org/sites/default/files/Q11_Guideline.pdf', modalities: ALL_MODALITIES,
+    rules: [
+      { id: 'q11-001', guideline_id: 'ich-q11', rule_id_code: 'Q11-001', rule_text: 'A control strategy linking material attributes and process parameters to drug substance CQAs shall be described.', requirement_level: 'MUST', severity: 'BLOCK', applies_to: ['DS'], ctd_sections: ['S.2.5', 'S.2.6'], evidence_expected: 'Control strategy and CQA linkage', category: 'Control Strategy' },
+    ],
+  },
+  {
+    id: 'ich-q9', code: 'ICH Q9(R1)', title: 'Quality Risk Management', agency: 'ICH', version: 'R1 (2023)',
+    description: 'Risk-based principles for justifying critical process parameters, CQAs and control strategies.',
+    domain: 'process_validation', ds_ctd_tags: ['S.2.5', 'S.4'], dp_ctd_tags: ['P.3.5', 'P.5'],
+    why_it_matters: 'Risk-based justification of CPPs, CQAs and control strategies.',
+    reference_url: 'https://database.ich.org/sites/default/files/ICH_Q9%28R1%29_Guideline_Step4_2023_0126_0.pdf', modalities: ALL_MODALITIES,
+    rules: [
+      { id: 'q9-001', guideline_id: 'ich-q9', rule_id_code: 'Q9-001', rule_text: 'A documented quality risk assessment should justify the selection of critical process parameters and the control strategy.', requirement_level: 'SHOULD', severity: 'WARN', applies_to: ['DS', 'DP'], ctd_sections: ['S.2.5', 'P.3.5'], evidence_expected: 'Risk assessment justifying CPPs / control strategy', category: 'Risk Management' },
+    ],
+  },
+  {
+    id: 'ich-q10', code: 'ICH Q10', title: 'Pharmaceutical Quality System', agency: 'ICH', version: '2008',
+    description: 'Lifecycle quality system covering PQS, CAPA, change management and continued process verification.',
+    domain: 'process_validation', ds_ctd_tags: ['S.2.5', 'S.4'], dp_ctd_tags: ['P.3.5', 'P.5'],
+    why_it_matters: 'Lifecycle management, PQS, CAPA, change management and CPV.',
+    reference_url: 'https://database.ich.org/sites/default/files/Q10_Guideline.pdf', modalities: ALL_MODALITIES,
+    rules: [
+      { id: 'q10-001', guideline_id: 'ich-q10', rule_id_code: 'Q10-001', rule_text: 'A continued process verification (CPV) approach should be described to monitor the process during routine production.', requirement_level: 'SHOULD', severity: 'WARN', applies_to: ['DS', 'DP'], ctd_sections: ['S.2.5', 'P.3.5'], evidence_expected: 'Continued process verification / monitoring plan', category: 'Lifecycle Management' },
+    ],
+  },
+  {
+    id: 'ich-q8', code: 'ICH Q8(R2)', title: 'Pharmaceutical Development', agency: 'ICH', version: 'R2 (2009)',
+    description: 'Drug product formulation and process development, design space and control strategy justification.',
+    domain: 'process_validation', ds_ctd_tags: [], dp_ctd_tags: ['P.2', 'P.3.5', 'P.5'],
+    why_it_matters: 'DP formulation, design space and process parameter justification.',
+    reference_url: 'https://database.ich.org/sites/default/files/Q8_R2_Guideline.pdf', modalities: ALL_MODALITIES,
+    rules: [
+      { id: 'q8-001', guideline_id: 'ich-q8', rule_id_code: 'Q8-001', rule_text: 'Critical quality attributes of the drug product and their link to formulation and process should be described.', requirement_level: 'SHOULD', severity: 'WARN', applies_to: ['DP'], ctd_sections: ['P.2', 'P.3.5'], evidence_expected: 'Pharmaceutical development discussion linking CQAs to process', category: 'Pharmaceutical Development' },
+    ],
+  },
+  {
+    id: 'ich-q12', code: 'ICH Q12', title: 'Lifecycle Management', agency: 'ICH', version: '2019',
+    description: 'Framework for post-approval change management and established conditions (ECs).',
+    domain: 'process_validation', ds_ctd_tags: ['S.2.5', 'S.4'], dp_ctd_tags: ['P.3.5', 'P.5'],
+    why_it_matters: 'Post-approval change management and established conditions (ECs).',
+    reference_url: 'https://database.ich.org/sites/default/files/ICH_Q12_Guideline_Step4_2019_1119.pdf', modalities: ALL_MODALITIES,
+    rules: [
+      { id: 'q12-001', guideline_id: 'ich-q12', rule_id_code: 'Q12-001', rule_text: 'Established conditions and a post-approval change management protocol should be identified where applicable.', requirement_level: 'MAY', severity: 'WARN', applies_to: ['DS', 'DP'], ctd_sections: ['S.2.5', 'P.3.5'], evidence_expected: 'Established conditions / PACMP statement', category: 'Lifecycle Management' },
+    ],
+  },
+  {
+    id: 'ich-q13', code: 'ICH Q13', title: 'Continuous Manufacturing of Drug Substances and Drug Products', agency: 'ICH', version: '2023',
+    description: 'Validation and control strategy expectations for continuous manufacturing processes.',
+    domain: 'process_validation', ds_ctd_tags: ['S.2.2', 'S.2.5'], dp_ctd_tags: ['P.3.3', 'P.3.5'],
+    why_it_matters: 'Validation and control strategy for continuous processes.',
+    reference_url: 'https://database.ich.org/sites/default/files/ICH_Q13_Step4_Guideline_2023_0316.pdf', modalities: ALL_MODALITIES,
+    rules: [
+      { id: 'q13-001', guideline_id: 'ich-q13', rule_id_code: 'Q13-001', rule_text: 'For continuous manufacturing, the control strategy shall address state of control, residence time distribution and material traceability.', requirement_level: 'MUST', severity: 'WARN', applies_to: ['DS', 'DP'], ctd_sections: ['S.2.5', 'P.3.5'], evidence_expected: 'Continuous manufacturing control strategy (only if CM is used)', category: 'Continuous Manufacturing' },
+    ],
+  },
+  {
+    id: 'ich-q5a', code: 'ICH Q5A(R2)', title: 'Viral Safety Evaluation of Biotechnology Products', agency: 'ICH', version: 'R2 (2023)',
+    description: 'Validation of viral clearance and viral safety for biotech/biological drug substances.',
+    domain: 'process_validation', ds_ctd_tags: ['S.2.5', 'A.2'], dp_ctd_tags: [],
+    why_it_matters: 'Validation of viral clearance for biotech/biological products.',
+    reference_url: 'https://database.ich.org/sites/default/files/ICH_Q5A%28R2%29_Guideline_2023_1101.pdf', modalities: BIO_MODALITIES,
+    rules: [
+      { id: 'q5a-001', guideline_id: 'ich-q5a', rule_id_code: 'Q5A-001', rule_text: 'Viral clearance studies validating the manufacturing process shall be provided for products derived from cell lines of human or animal origin.', requirement_level: 'MUST', severity: 'BLOCK', applies_to: ['DS'], ctd_sections: ['S.2.5', 'A.2'], evidence_expected: 'Viral clearance / inactivation validation data', category: 'Viral Safety' },
+    ],
+  },
+  {
+    id: 'ich-q5e', code: 'ICH Q5E', title: 'Comparability of Biotechnological/Biological Products', agency: 'ICH', version: '2004',
+    description: 'Comparability assessment when manufacturing process changes are made before/after validation.',
+    domain: 'process_validation', ds_ctd_tags: ['S.2.5'], dp_ctd_tags: ['P.3.5'],
+    why_it_matters: 'Comparability testing for process changes before/after validation.',
+    reference_url: 'https://database.ich.org/sites/default/files/Q5E%20Guideline.pdf', modalities: ['NBE', 'ATMP', 'VACCINE', 'SYNTHETIC_HYBRID'],
+    rules: [
+      { id: 'q5e-001', guideline_id: 'ich-q5e', rule_id_code: 'Q5E-001', rule_text: 'A comparability exercise should demonstrate that pre- and post-change material is comparable in quality, safety and efficacy.', requirement_level: 'SHOULD', severity: 'WARN', applies_to: ['DS', 'DP'], ctd_sections: ['S.2.5', 'P.3.5'], evidence_expected: 'Comparability assessment for process/site/scale changes', category: 'Comparability' },
+    ],
+  },
+  {
+    id: 'ema-pv', code: 'EMA PV (Finished Products)', title: 'Process Validation for Finished Products', agency: 'EMA', version: '2016',
+    description: 'EU regulatory expectations for the process validation data to be provided for finished products.',
+    domain: 'process_validation', ds_ctd_tags: ['S.2.5'], dp_ctd_tags: ['P.3.5'],
+    why_it_matters: 'Regulatory expectations for finished product PV data.',
+    reference_url: 'https://www.ema.europa.eu/en/process-validation-finished-products-information-data-be-provided-regulatory-submissions-scientific-guideline', modalities: ALL_MODALITIES,
+    rules: [
+      { id: 'ema-pv-001', guideline_id: 'ema-pv', rule_id_code: 'EMA-PV-001', rule_text: 'Process validation data (traditional, continuous, or hybrid) for the finished product should be presented in the submission.', requirement_level: 'SHOULD', severity: 'WARN', applies_to: ['DP'], ctd_sections: ['P.3.5'], evidence_expected: 'Finished product process validation data', category: 'Process Validation' },
+    ],
+  },
+  {
+    id: 'eu-annex15', code: 'EU GMP Annex 15', title: 'Qualification and Validation', agency: 'EU GMP', version: '2015',
+    description: 'European expectations for equipment qualification, process validation and cleaning validation.',
+    domain: 'process_validation', ds_ctd_tags: ['S.2.5'], dp_ctd_tags: ['P.3.5'],
+    why_it_matters: 'European expectations for qualification, process and cleaning validation.',
+    reference_url: 'https://health.ec.europa.eu/system/files/2016-11/2015-10_annex15_en_0.pdf', modalities: ALL_MODALITIES,
+    rules: [
+      { id: 'annex15-001', guideline_id: 'eu-annex15', rule_id_code: 'ANNEX15-001', rule_text: 'Process validation and cleaning validation should be supported by qualified equipment and documented protocols.', requirement_level: 'SHOULD', severity: 'WARN', applies_to: ['DS', 'DP'], ctd_sections: ['S.2.5', 'P.3.5'], evidence_expected: 'Qualification / cleaning validation references', category: 'Qualification & Validation' },
+    ],
+  },
+  {
+    id: 'fda-pv', code: 'FDA PV Guidance', title: 'Process Validation: General Principles and Practices', agency: 'FDA', version: '2011',
+    description: 'FDA three-stage lifecycle validation framework (process design, qualification, continued verification).',
+    domain: 'process_validation', ds_ctd_tags: ['S.2.5'], dp_ctd_tags: ['P.3.5'],
+    why_it_matters: 'FDA 3-stage lifecycle validation framework (US expectations).',
+    reference_url: 'https://www.fda.gov/regulatory-information/search-fda-guidance-documents/process-validation-general-principles-and-practices', modalities: ALL_MODALITIES,
+    rules: [
+      { id: 'fda-pv-001', guideline_id: 'fda-pv', rule_id_code: 'FDA-PV-001', rule_text: 'Process validation should follow a lifecycle approach: process design, process qualification, and continued process verification.', requirement_level: 'SHOULD', severity: 'WARN', applies_to: ['DS', 'DP'], ctd_sections: ['S.2.5', 'P.3.5'], evidence_expected: 'Evidence of 3-stage lifecycle validation', category: 'Process Validation' },
+    ],
+  },
+
+  // ── Stability Testing (3.2.S.7 & 3.2.P.8) ──────────────────────────
+  {
+    id: 'ich-q1c', code: 'ICH Q1C', title: 'Stability Testing for New Dosage Forms', agency: 'ICH', version: '1996',
+    description: 'Stability testing expectations for new dosage forms of already approved drugs.',
+    domain: 'stability', ds_ctd_tags: [], dp_ctd_tags: ['P.8.1', 'P.8.3'],
+    why_it_matters: 'Stability testing for new dosage forms of approved APIs.',
+    reference_url: 'https://database.ich.org/sites/default/files/Q1C%20Guideline.pdf', modalities: ALL_MODALITIES,
+    rules: [
+      { id: 'q1c-001', guideline_id: 'ich-q1c', rule_id_code: 'Q1C-001', rule_text: 'A new dosage form of an approved drug should be supported by stability studies following Q1A principles.', requirement_level: 'SHOULD', severity: 'WARN', applies_to: ['DP'], ctd_sections: ['P.8.1', 'P.8.3'], evidence_expected: 'Stability data for the new dosage form (if applicable)', category: 'Stability' },
+    ],
+  },
+  {
+    id: 'ich-q1d', code: 'ICH Q1D', title: 'Bracketing and Matrixing Designs for Stability Testing', agency: 'ICH', version: '2002',
+    description: 'Reduced stability testing designs using bracketing and matrixing.',
+    domain: 'stability', ds_ctd_tags: ['S.7.1'], dp_ctd_tags: ['P.8.1'],
+    why_it_matters: 'Reduced stability testing designs (bracketing & matrixing).',
+    reference_url: 'https://database.ich.org/sites/default/files/Q1D_Guideline.pdf', modalities: ALL_MODALITIES,
+    rules: [
+      { id: 'q1d-001', guideline_id: 'ich-q1d', rule_id_code: 'Q1D-001', rule_text: 'If a reduced design (bracketing or matrixing) is used, its justification should be documented.', requirement_level: 'MAY', severity: 'WARN', applies_to: ['DS', 'DP'], ctd_sections: ['S.7.1', 'P.8.1'], evidence_expected: 'Justification for any bracketing/matrixing design', category: 'Study Design' },
+    ],
+  },
+  {
+    id: 'ich-q1e', code: 'ICH Q1E', title: 'Evaluation of Stability Data', agency: 'ICH', version: '2003',
+    description: 'Statistical evaluation and extrapolation of stability data to justify retest period / shelf life.',
+    domain: 'stability', ds_ctd_tags: ['S.7.3', 'S.7.4'], dp_ctd_tags: ['P.8.3'],
+    why_it_matters: 'Statistical methods for stability data and regression analysis.',
+    reference_url: 'https://database.ich.org/sites/default/files/Q1E_Guideline.pdf', modalities: ALL_MODALITIES,
+    rules: [
+      { id: 'q1e-001', guideline_id: 'ich-q1e', rule_id_code: 'Q1E-001', rule_text: 'The proposed retest period or shelf life should be justified by appropriate evaluation (including statistical analysis where applicable) of the stability data.', requirement_level: 'SHOULD', severity: 'WARN', applies_to: ['DS', 'DP'], ctd_sections: ['S.7.3', 'P.8.3'], evidence_expected: 'Statistical evaluation / extrapolation supporting shelf life', category: 'Data Evaluation' },
+    ],
+  },
+  {
+    id: 'ich-q5c', code: 'ICH Q5C', title: 'Stability Testing of Biotechnological/Biological Products', agency: 'ICH', version: '1995',
+    description: 'Stability testing expectations specific to biotech/biological products.',
+    domain: 'stability', ds_ctd_tags: ['S.7.1', 'S.7.3'], dp_ctd_tags: ['P.8.1', 'P.8.3'],
+    why_it_matters: 'Biological/biotech product stability testing guidelines.',
+    reference_url: 'https://database.ich.org/sites/default/files/Q5C_Guideline.pdf', modalities: BIO_MODALITIES,
+    rules: [
+      { id: 'q5c-001', guideline_id: 'ich-q5c', rule_id_code: 'Q5C-001', rule_text: 'Stability-indicating tests for biological activity/potency and relevant degradation pathways shall be included in the stability programme.', requirement_level: 'MUST', severity: 'BLOCK', applies_to: ['DS', 'DP'], ctd_sections: ['S.7.1', 'P.8.1'], evidence_expected: 'Potency / stability-indicating assays in the stability protocol', category: 'Biological Stability' },
+    ],
+  },
+  {
+    id: 'ema-stability', code: 'EMA Stability', title: 'Stability Testing of Existing Active Substances and Related Finished Products', agency: 'EMA', version: '2003',
+    description: 'EU-specific stability expectations for existing active substances and related finished products.',
+    domain: 'stability', ds_ctd_tags: ['S.7.1', 'S.7.3'], dp_ctd_tags: ['P.8.1', 'P.8.3'],
+    why_it_matters: 'EU-specific stability guidelines for existing substances and DP.',
+    reference_url: 'https://www.ema.europa.eu/en/stability-testing-existing-active-substances-related-finished-products-scientific-guideline', modalities: ALL_MODALITIES,
+    rules: [
+      { id: 'ema-stab-001', guideline_id: 'ema-stability', rule_id_code: 'EMA-STAB-001', rule_text: 'Stability data should support the proposed shelf life and storage statement for the EU market.', requirement_level: 'SHOULD', severity: 'WARN', applies_to: ['DS', 'DP'], ctd_sections: ['S.7.3', 'P.8.3'], evidence_expected: 'Shelf life and storage statement supported by data', category: 'Stability' },
+    ],
+  },
+  {
+    id: 'fda-stability', code: 'FDA Stability', title: 'Q1A(R2) Stability Testing (FDA-adopted)', agency: 'FDA', version: '2003',
+    description: 'US FDA-adopted core stability testing requirements (ICH Q1A(R2)).',
+    domain: 'stability', ds_ctd_tags: ['S.7.1', 'S.7.3'], dp_ctd_tags: ['P.8.1', 'P.8.3'],
+    why_it_matters: 'US FDA-adopted core stability testing requirements.',
+    reference_url: 'https://www.fda.gov/regulatory-information/search-fda-guidance-documents/q1ar2-stability-testing-new-drug-substances-and-products', modalities: ALL_MODALITIES,
+    rules: [
+      { id: 'fda-stab-001', guideline_id: 'fda-stability', rule_id_code: 'FDA-STAB-001', rule_text: 'Stability data should meet FDA-adopted ICH conditions for long-term and accelerated storage.', requirement_level: 'SHOULD', severity: 'WARN', applies_to: ['DS', 'DP'], ctd_sections: ['S.7.3', 'P.8.3'], evidence_expected: 'Long-term and accelerated data per FDA/ICH conditions', category: 'Stability' },
+    ],
+  },
+  {
+    id: 'who-trs1010', code: 'WHO TRS 1010 Annex 10', title: 'Stability Testing for Climatic Zones III and IV', agency: 'WHO', version: '2018',
+    description: 'Global stability requirements defining conditions for Climatic Zones III and IV.',
+    domain: 'stability', ds_ctd_tags: ['S.7.1', 'S.7.3'], dp_ctd_tags: ['P.8.1', 'P.8.3'],
+    why_it_matters: 'Stability testing for Climatic Zones III and IV (global registration).',
+    reference_url: 'https://www.who.int/publications/m/item/trs1010-annex10', modalities: ALL_MODALITIES,
+    rules: [
+      { id: 'who-001', guideline_id: 'who-trs1010', rule_id_code: 'WHO-001', rule_text: 'For Zone IVb registration, long-term stability data at 30°C/75% RH should be provided.', requirement_level: 'MAY', severity: 'WARN', applies_to: ['DS', 'DP'], ctd_sections: ['S.7.3', 'P.8.3'], evidence_expected: 'Zone IVb (30°C/75%RH) data if targeting those markets', category: 'Climatic Zones' },
+    ],
+  },
 ];
+
+/** Guidelines applicable to a given modality (undefined modalities → all). */
+export function getApplicableGuidelines(modality: Modality = 'NCE'): ICHGuideline[] {
+  return ICH_GUIDELINES.filter((g) => !g.modalities || g.modalities.includes(modality));
+}
+
+// ── AI compliance check (reads the generated document) ──────────────
+const VALIDATION_RESULTS_KEY = 'ctd_validation_results';
+
+export interface ComplianceResult {
+  section_id: string;
+  run_id: string;
+  guideline_id: string;
+  guideline_code: string;
+  guideline_title: string;
+  domain: RegulatoryDomain;
+  reference_url?: string;
+  rule: ICHRule;
+  status: 'pass' | 'fail' | 'warning' | 'not_applicable';
+  evidence_quote?: string;
+  reasoning?: string;
+  suggestion?: string;
+}
+
+export interface ComplianceReport {
+  project_id: string;
+  modality: Modality;
+  generated_at: string;
+  /** false when we fell back to the rule-based heuristic (AI unavailable). */
+  ai_powered: boolean;
+  results: ComplianceResult[];
+  summary: { total: number; pass: number; fail: number; warning: number; not_applicable: number; score: number };
+  sections_checked: string[];
+}
+
+function ruleAppliesToModality(rule: ICHRule, guideline: ICHGuideline, modality: Modality): boolean {
+  const mods = rule.modalities ?? guideline.modalities;
+  return !mods || mods.includes(modality);
+}
+
+/** For a section id (e.g. 'S.7.3'), the {guideline, rule} pairs that apply for a modality. */
+function rulesForSection(sectionId: string, modality: Modality): { guideline: ICHGuideline; rule: ICHRule }[] {
+  const pairs: { guideline: ICHGuideline; rule: ICHRule }[] = [];
+  for (const guideline of getApplicableGuidelines(modality)) {
+    for (const rule of guideline.rules) {
+      if (rule.ctd_sections.includes(sectionId) && ruleAppliesToModality(rule, guideline, modality)) {
+        pairs.push({ guideline, rule });
+      }
+    }
+  }
+  return pairs;
+}
+
+function summarize(results: ComplianceResult[]): ComplianceReport['summary'] {
+  const total = results.length;
+  const pass = results.filter((r) => r.status === 'pass').length;
+  const fail = results.filter((r) => r.status === 'fail').length;
+  const warning = results.filter((r) => r.status === 'warning').length;
+  const not_applicable = results.filter((r) => r.status === 'not_applicable').length;
+  const applicable = total - not_applicable;
+  const score = applicable > 0 ? Math.round((pass / applicable) * 100) : 0;
+  return { total, pass, fail, warning, not_applicable, score };
+}
+
+/** Most-recent completed run per section for a project. */
+function latestRunsBySection(projectId: string): (GenerationRun & { project_id?: string })[] {
+  const allRuns = getStorage<(GenerationRun & { project_id?: string })[]>(STORAGE_KEYS.GENERATION_RUNS, []);
+  const completed = allRuns.filter((r) => r.project_id === projectId && r.status === 'completed' && r.section_id);
+  const bySection = new Map<string, GenerationRun & { project_id?: string }>();
+  for (const run of completed) {
+    const existing = bySection.get(run.section_id!);
+    if (!existing || new Date(run.created_at).getTime() > new Date(existing.created_at).getTime()) {
+      bySection.set(run.section_id!, run);
+    }
+  }
+  return [...bySection.values()];
+}
+
+/** Build a compliance report from the rule-based heuristic (AI-unavailable fallback). */
+function heuristicReport(projectId: string, modality: Modality): ComplianceReport {
+  const { results: gap } = runGapAssessment(projectId);
+  const applicableIds = new Set(getApplicableGuidelines(modality).map((g) => g.id));
+  const results: ComplianceResult[] = gap
+    .filter((r) => applicableIds.has(r.guideline_id))
+    .map((r) => {
+      const guideline = ICH_GUIDELINES.find((g) => g.id === r.guideline_id);
+      return {
+        section_id: r.rule.ctd_sections[0] || '',
+        run_id: '',
+        guideline_id: r.guideline_id,
+        guideline_code: r.guideline_code,
+        guideline_title: guideline?.title || '',
+        domain: guideline?.domain || 'general',
+        reference_url: guideline?.reference_url,
+        rule: r.rule,
+        status: r.status,
+        reasoning: r.detail,
+      };
+    });
+  return {
+    project_id: projectId,
+    modality,
+    generated_at: new Date().toISOString(),
+    ai_powered: false,
+    results,
+    summary: summarize(results),
+    sections_checked: [...new Set(results.map((r) => r.section_id).filter(Boolean))],
+  };
+}
+
+export const compliance = {
+  /** Return the last cached report for a project, if any. */
+  getCached: (projectId: string): ComplianceReport | null => {
+    const all = getStorage<Record<string, ComplianceReport>>(VALIDATION_RESULTS_KEY, {});
+    return all[projectId] || null;
+  },
+
+  /**
+   * Run the AI compliance check: for each generated section, ask the model to
+   * judge the applicable rules against the actual document content. Falls back
+   * to the rule-based heuristic if the API is unavailable. Result is cached.
+   */
+  run: async (projectId: string): Promise<ComplianceReport> => {
+    const project = getStorage<Project[]>(STORAGE_KEYS.PROJECTS, []).find((p) => p.id === projectId);
+    const modality: Modality = project?.modality ?? 'NCE';
+    const runs = latestRunsBySection(projectId);
+    const htmlStore = getStorage<Record<string, string>>(GENERATED_HTML_KEY, {});
+
+    const results: ComplianceResult[] = [];
+    let anySucceeded = false;
+    let anyAttempted = false;
+
+    for (const run of runs) {
+      const sectionId = run.section_id!;
+      const pairs = rulesForSection(sectionId, modality);
+      if (pairs.length === 0) continue;
+
+      const html = run.outputs?.html ? htmlStore[run.outputs.html] : '';
+      if (!html) continue;
+
+      anyAttempted = true;
+      try {
+        const response = await fetch(`${API_BASE}/api/validate`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            section: sectionId,
+            modality,
+            document_html: html,
+            rules: pairs.map(({ rule }) => ({
+              rule_id: rule.id,
+              rule_id_code: rule.rule_id_code,
+              rule_text: rule.rule_text,
+              requirement_level: rule.requirement_level,
+              severity: rule.severity,
+              evidence_expected: rule.evidence_expected,
+            })),
+          }),
+        });
+        if (!response.ok) throw new Error(`validate failed: ${response.status}`);
+        const data = await response.json();
+        const verdicts: Record<string, { status: ComplianceResult['status']; evidence_quote?: string; reasoning?: string; suggestion?: string }> = {};
+        for (const v of data.verdicts || []) verdicts[v.rule_id] = v;
+        anySucceeded = true;
+
+        for (const { guideline, rule } of pairs) {
+          const v = verdicts[rule.id];
+          results.push({
+            section_id: sectionId,
+            run_id: run.run_id,
+            guideline_id: guideline.id,
+            guideline_code: guideline.code,
+            guideline_title: guideline.title,
+            domain: guideline.domain || 'general',
+            reference_url: guideline.reference_url,
+            rule,
+            status: v?.status || 'warning',
+            evidence_quote: v?.evidence_quote,
+            reasoning: v?.reasoning || (v ? '' : 'No verdict returned for this rule.'),
+            suggestion: v?.suggestion,
+          });
+        }
+      } catch (err) {
+        console.error('Compliance check failed for section', sectionId, err);
+        // Leave this section's rules out of the AI results; handled by fallback below.
+      }
+    }
+
+    // If we attempted sections but every call failed, fall back to the heuristic.
+    if (anyAttempted && !anySucceeded) {
+      const report = heuristicReport(projectId, modality);
+      const all = getStorage<Record<string, ComplianceReport>>(VALIDATION_RESULTS_KEY, {});
+      all[projectId] = report;
+      setStorage(VALIDATION_RESULTS_KEY, all);
+      return report;
+    }
+
+    const report: ComplianceReport = {
+      project_id: projectId,
+      modality,
+      generated_at: new Date().toISOString(),
+      ai_powered: anySucceeded,
+      results,
+      summary: summarize(results),
+      sections_checked: [...new Set(results.map((r) => r.section_id).filter(Boolean))],
+    };
+    const all = getStorage<Record<string, ComplianceReport>>(VALIDATION_RESULTS_KEY, {});
+    all[projectId] = report;
+    setStorage(VALIDATION_RESULTS_KEY, all);
+    return report;
+  },
+};
 
 // Expose for UI
 export function getICHGuidelines(): ICHGuideline[] {

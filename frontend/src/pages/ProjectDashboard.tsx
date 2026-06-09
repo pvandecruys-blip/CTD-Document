@@ -21,9 +21,11 @@ import {
   AlertCircle,
   FileUp,
   Library,
+  ShieldCheck,
 } from 'lucide-react';
 import { CTD_STRUCTURE, getLeafSections, getGenerableSections, type CTDSection } from '../config/ctdStructure';
 import { generation, documents } from '../api/client';
+import { resolveModality } from '../config/modalities';
 import type { GenerationRun, DocumentFile } from '../types';
 
 function SectionRow({ section, depth, projectId, completedSections }: { section: CTDSection; depth: number; projectId: string; completedSections: Set<string> }) {
@@ -539,23 +541,41 @@ export default function ProjectDashboard() {
                 <Shield className="text-white" size={24} />
               </div>
               <div>
-                <h1 className="text-xl font-bold text-gray-900">{current.name}</h1>
+                <div className="flex items-center gap-2">
+                  <h1 className="text-xl font-bold text-gray-900">{current.name}</h1>
+                  <span
+                    className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium ${resolveModality(current.modality).badgeClass}`}
+                    title={resolveModality(current.modality).description}
+                  >
+                    {resolveModality(current.modality).label} · {resolveModality(current.modality).name}
+                  </span>
+                </div>
                 <p className="text-sm text-gray-500">{current.description || 'Common Technical Document'}</p>
               </div>
             </div>
-            <button
-              onClick={() => navigate(`/project/${current.id}/library`)}
-              className="inline-flex items-center gap-2 bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 hover:border-gray-300 px-4 py-2 rounded-lg text-sm font-medium transition-colors shadow-sm flex-shrink-0"
-              title="Open the project-wide document library"
-            >
-              <Library size={15} />
-              Document Library
-              {projectDocs.length > 0 && (
-                <span className="ml-1 text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500 font-medium">
-                  {projectDocs.length}
-                </span>
-              )}
-            </button>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <button
+                onClick={() => navigate(`/project/${current.id}/compliance`)}
+                className="inline-flex items-center gap-2 bg-primary-600 border border-primary-600 text-white hover:bg-primary-700 px-4 py-2 rounded-lg text-sm font-medium transition-colors shadow-sm"
+                title="Run an AI compliance check on the generated documents"
+              >
+                <ShieldCheck size={15} />
+                Compliance Check
+              </button>
+              <button
+                onClick={() => navigate(`/project/${current.id}/library`)}
+                className="inline-flex items-center gap-2 bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 hover:border-gray-300 px-4 py-2 rounded-lg text-sm font-medium transition-colors shadow-sm"
+                title="Open the project-wide document library"
+              >
+                <Library size={15} />
+                Document Library
+                {projectDocs.length > 0 && (
+                  <span className="ml-1 text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500 font-medium">
+                    {projectDocs.length}
+                  </span>
+                )}
+              </button>
+            </div>
           </div>
         </div>
       </header>

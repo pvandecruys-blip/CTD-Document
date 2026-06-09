@@ -35,6 +35,13 @@ export type GenerationStatus = 'pending' | 'running' | 'completed' | 'failed';
 
 export type TimepointUnit = 'hour' | 'day' | 'week' | 'month' | 'year';
 
+/**
+ * Product modality, chosen at project creation. Drives which regulatory
+ * guidelines apply during the compliance check (e.g. viral-safety guidances
+ * apply to biologics but not small molecules).
+ */
+export type Modality = 'NCE' | 'NBE' | 'ATMP' | 'SYNTHETIC_HYBRID' | 'VACCINE';
+
 // ── Core entities ──────────────────────────────────────────────────
 
 export interface Project {
@@ -44,6 +51,8 @@ export interface Project {
   status: string;
   clinical_phase?: ClinicalPhase;
   numbering_mode?: NumberingMode;
+  /** Product modality — undefined on legacy projects, treated as 'NCE'. */
+  modality?: Modality;
   created_by: UserSummary;
   document_count: number;
   created_at: string;

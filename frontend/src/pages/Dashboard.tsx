@@ -2,19 +2,21 @@ import { useState } from 'react';
 import { Plus, Folder, Trash2 } from 'lucide-react';
 import { useProject } from '../context/ProjectContext';
 import { projects } from '../api/client';
+import { MODALITY_OPTIONS, resolveModality } from '../config/modalities';
+import type { Modality } from '../types';
 
 export default function Dashboard() {
   const { list, loading, current, select, reload } = useProject();
   const [showCreate, setShowCreate] = useState(false);
-  const [form, setForm] = useState({ name: '', description: '' });
+  const [form, setForm] = useState<{ name: string; description: string; modality: Modality }>({ name: '', description: '', modality: 'NCE' });
   const [creating, setCreating] = useState(false);
 
   const handleCreate = async () => {
     if (!form.name.trim()) return;
     setCreating(true);
     try {
-      const p = await projects.create({ name: form.name, description: form.description || undefined });
-      setForm({ name: '', description: '' });
+      const p = await projects.create({ name: form.name, description: form.description || undefined, modality: form.modality });
+      setForm({ name: '', description: '', modality: 'NCE' });
       setShowCreate(false);
       await reload();
       select(p);
@@ -64,10 +66,23 @@ export default function Dashboard() {
             <textarea
               value={form.description}
               onChange={(e) => setForm({ ...form, description: e.target.value })}
-              className="w-full border rounded-md px-3 py-2 text-sm mb-4 focus:ring-2 focus:ring-primary-500 focus:outline-none"
+              className="w-full border rounded-md px-3 py-2 text-sm mb-3 focus:ring-2 focus:ring-primary-500 focus:outline-none"
               rows={3}
               placeholder="Optional description"
             />
+            <label className="block text-sm font-medium text-gray-700 mb-1">Modality</label>
+            <select
+              value={form.modality}
+              onChange={(e) => setForm({ ...form, modality: e.target.value as Modality })}
+              className="w-full border rounded-md px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-primary-500 focus:outline-none"
+            >
+              {MODALITY_OPTIONS.map((m) => (
+                <option key={m.id} value={m.id}>{m.label} — {m.name}</option>
+              ))}
+            </select>
+            <p className="text-[11px] text-gray-500 mt-1 mb-4 leading-snug">
+              {resolveModality(form.modality).description} This drives which regulatory guidelines apply in the compliance check.
+            </p>
             <div className="flex justify-end gap-2">
               <button
                 onClick={() => setShowCreate(false)}
@@ -119,7 +134,10 @@ export default function Dashboard() {
                   <Trash2 size={16} />
                 </button>
               </div>
-              <div className="mt-3 flex items-center gap-3 text-xs text-gray-400">
+              <div className="mt-3 flex items-center gap-2 text-xs text-gray-400 flex-wrap">
+                <span className={`inline-flex items-center rounded-full border px-2 py-0.5 font-medium ${resolveModality(p.modality).badgeClass}`}>
+                  {resolveModality(p.modality).label}
+                </span>
                 <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-gray-600">
                   {p.status}
                 </span>
